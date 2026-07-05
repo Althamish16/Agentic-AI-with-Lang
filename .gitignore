@@ -1,0 +1,32 @@
+# ─── Secrets ──────────────────────────────────────────────
+.env
+*.env
+!.env.example
+
+# ─── Python ───────────────────────────────────────────────
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# ─── Vector store / local DBs / checkpoints ───────────────
+**/chroma_db/
+**/.chroma/
+*.sqlite
+*.sqlite3
+**/checkpoints/
+long_term_memory/
+
+# ─── Node / frontend ──────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ─── Editor / OS ──────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

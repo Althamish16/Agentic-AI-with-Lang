@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #e2e8f0;
+  background: #0b1020;
+  /* subtle animated aurora background */
+  background-image:
+    radial-gradient(60rem 60rem at 10% -10%, rgba(79, 70, 229, 0.18), transparent 60%),
+    radial-gradient(50rem 50rem at 110% 10%, rgba(14, 165, 233, 0.14), transparent 55%),
+    radial-gradient(40rem 40rem at 50% 120%, rgba(168, 85, 247, 0.14), transparent 55%);
+  background-attachment: fixed;
+}
+
+/* Glass card */
+.glass {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px);
+}
+
+/* Pretty scrollbar */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+/* Markdown report styling (react-markdown output) */
+.report h1 { font-size: 1.6rem; font-weight: 800; margin: 0.6em 0 0.35em; color: #f8fafc; }
+.report h2 { font-size: 1.25rem; font-weight: 700; margin: 1em 0 0.3em; color: #eef2ff; }
+.report h3 { font-size: 1.05rem; font-weight: 600; margin: 0.9em 0 0.25em; color: #e0e7ff; }
+.report p { margin: 0.5em 0; line-height: 1.7; color: #cbd5e1; }
+.report ul, .report ol { margin: 0.4em 0 0.4em 1.2em; line-height: 1.7; color: #cbd5e1; }
+.report li { margin: 0.2em 0; }
+.report ul { list-style: disc; }
+.report ol { list-style: decimal; }
+.report strong { color: #f1f5f9; }
+.report code {
+  background: rgba(148, 163, 184, 0.15);
+  padding: 0.1em 0.35em;
+  border-radius: 6px;
+  font-size: 0.9em;
+}
+.report hr { border: none; border-top: 1px solid rgba(148,163,184,0.2); margin: 1em 0; }
+.report a { color: #a5b4fc; text-decoration: underline; }
