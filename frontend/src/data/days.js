@@ -6,34 +6,59 @@ export const DAYS = [
   {
     n: 1,
     key: 'day1',
-    title: 'Chains, Agents & Tools',
-    tag: 'Prompt templates + output parsers',
+    title: 'AI Fundamentals — Chains, Tools & Agents',
+    tag: 'From next-token prediction to multi-agent orchestration',
     accent: 'indigo',
-    why: 'Structured output is what lets one step feed cleanly into the next.',
-    flow: ['Question', 'Prompt template', 'LLM', 'Pydantic parser', 'ResearchPlan (JSON)'],
-    carriesOver: 'Nothing yet — this is the seed. Promoted to shared/planner.py and reused from Day 3 on.',
+    why: 'Every idea in Days 2–7 is one of the seven concepts on today\'s slides.',
+    flow: ['LLM', 'Prompt', 'Tool', 'Chain', 'Agent', 'Memory', 'Orchestrator'],
+    carriesOver: 'The mental model built today powers every later day. Slide 4 (chain) → Days 1–2 labs; Slides 5–8 (tools + agent) → Days 3–4; Slide 10 (memory) → Day 5; Slide 11 (multi-agent) → Days 6–7.',
     explain: [
-      { h: 'Chain vs Agent vs Tool', body: 'A **chain** is a fixed pipeline you compose with the `|` operator: prompt → model → parse. An **agent** decides its own next step at runtime (Day 3+). A **tool** is a function the model can call (Day 4+). Today we build the simplest useful thing — a chain — and make its output *structured*.' },
-      { h: 'Why output parsers', body: 'Left alone, an LLM returns free-form prose. That is impossible to feed reliably into the next step. An **output parser** forces the model to return JSON that is validated against a **Pydantic** schema, so downstream code gets typed, predictable data — our `ResearchPlan` (a topic + exactly 3 sub-questions).' },
+      { h: 'What today covers', body: 'The **12 slides** from the deck, each with a **live demo you can run**. Slide 2 shows an LLM literally ranking next-token probabilities. Slide 5 shows a tool call step by step. Slide 7 watches an agent choose its own path. Slide 13 exercises **every** concept in one everyday task ("book me a dentist appointment").' },
+      { h: 'Chain vs Tool vs Agent', body: 'A **chain** is a fixed pipeline you compose with the `|` operator: prompt → model → parse. A **tool** is a function the model can *request* — your app runs it and feeds the result back. An **agent** is an LLM that reasons, chooses tools, observes results, and decides its own next step (a runtime loop, not a frozen pipeline).' },
+      { h: 'Why prompts, output parsers, and structured output', body: 'Free-form LLM prose is impossible to feed reliably into the next step. An **output parser** forces the model to return JSON validated against a **Pydantic** schema — the Day 1 coding lab uses this to produce a typed `ResearchPlan` (topic + 3 sub-questions) that Day 3\'s graph then consumes.' },
       { h: 'How LCEL wires it', body: 'LangChain Expression Language (LCEL) lets you pipe runnables: `prompt | llm | parser`. The parser does double duty — it validates the response **and** generates the "format instructions" we inject into the prompt so the model knows the exact JSON shape to produce.' },
-      { h: 'Watch out', body: 'Set `temperature=0` for deterministic, parseable output. If the model wraps JSON in prose, the parser can fail — clear format instructions (and, in production, an `OutputFixingParser`) keep it robust.' },
+      { h: 'Watch out', body: 'This deployment (gpt-5.4) is a **reasoning model**: it spends hidden tokens thinking before emitting output. Never pass a tiny `max_tokens` or the call will 400 before any visible token appears. All demos call `get_llm(temperature=None)` — the deployment only accepts its default temperature.' },
     ],
     snippets: [
-      { title: 'The Pydantic schema', code: `class ResearchPlan(BaseModel):
-    topic: str = Field(description="one-line restatement")
-    sub_questions: List[str] = Field(
-        description="exactly three focused sub-questions")` },
-      { title: 'Compose the chain (LCEL)', code: `parser = PydanticOutputParser(pydantic_object=ResearchPlan)
+      { title: 'A tool the model can request', code: `@tool
+def get_weather(city: str) -> str:
+    """Get the CURRENT weather for a city."""
+    ...  # real code that your app runs, not the model` },
+      { title: 'Compose a chain (LCEL)', code: `parser = PydanticOutputParser(pydantic_object=ResearchPlan)
 prompt = ChatPromptTemplate.from_messages([...]).partial(
     format_instructions=parser.get_format_instructions())
 chain = prompt | llm | parser        # <- this IS the chain` },
-      { title: 'Run it', code: `plan = chain.invoke({"question": q})
-# -> ResearchPlan(topic=..., sub_questions=[...3...])` },
+      { title: 'Agent loop by hand (Think → Act → Observe)', code: `llm = get_llm(0).bind_tools(TOOLS)
+for _ in range(6):
+    ai = llm.invoke(messages)
+    if not ai.tool_calls: break        # agent decides it's done
+    for call in ai.tool_calls:
+        obs = TOOLS[call["name"]].invoke(call["args"])
+        messages.append(ToolMessage(obs, tool_call_id=call["id"]))` },
+    ],
+    sections: [
+      { id: 'slides', label: 'Slide demos', desc: 'One live demo per deck slide (2–13). Run in order for the full story.' },
+      { id: 'lab', label: 'Coding lab · Output parsers', desc: 'The ResearchPlan pipeline the rest of the course reuses.' },
     ],
     demos: [
-      { id: 'plan', label: 'Plan a question', desc: 'Question → validated ResearchPlan JSON.', needsQuestion: true },
-      { id: 'raw_vs_parsed', label: 'Raw LLM vs parsed chain', desc: 'Same ask, unstructured text vs typed JSON — see why parsers matter.', needsQuestion: true },
-      { id: 'prompt_preview', label: 'Preview the real prompt', desc: 'The exact prompt (with format instructions) sent to the model. No LLM call.', needsQuestion: true },
+      // ─── Slide demos — one per slide from the deck ─────────────────────
+      { id: 'slide2',  section: 'slides', slide: 2,  tab: 'LLM',           label: 'Slide 2 · What is an LLM?',           desc: 'Real next-token probabilities (poetry ≈ 100% "blue"; "favorite season" splits 3 ways) — then it forgets your name between calls.', needsQuestion: false },
+      { id: 'slide3',  section: 'slides', slide: 3,  tab: 'Prompt',        label: 'Slide 3 · The Prompt',                desc: 'Same question asked 3×: bare → +instructions → +full context. Same model, different worlds.', needsQuestion: false },
+      { id: 'slide4',  section: 'slides', slide: 4,  tab: 'Chain',         label: 'Slide 4 · Chain: fixed pipeline',     desc: 'An LCEL `rewrite | search | answer` chain shines in-scope and marches into a dead end out-of-scope.', needsQuestion: false },
+      { id: 'slide5',  section: 'slides', slide: 5,  tab: 'Tools',         label: 'Slide 5 · Tools',                     desc: 'Model can\'t answer "umbrella in Tokyo?" alone → requests `get_weather`, OUR code runs it, then it answers.', needsQuestion: false },
+      { id: 'slide6',  section: 'slides', slide: 6,  tab: 'Tool flow',     label: 'Slide 6 · Tool-calling flow',         desc: 'One DB question traced through all 6 steps, showing the raw tool-call JSON the model emits.', needsQuestion: false },
+      { id: 'slide7',  section: 'slides', slide: 7,  tab: 'Agent',         label: 'Slide 7 · Agent loop',                desc: 'Think→Act→Observe: checks 3 cities, finds Bend sunny, THEN looks up hotels — nobody scripted that.', needsQuestion: false },
+      { id: 'slide8',  section: 'slides', slide: 8,  tab: 'Chain vs Agent',label: 'Slide 8 · Chain vs Agent',            desc: 'Same goal both ways: chain ships rainy Portland; agent routes around the rain. Then the slide\'s table, filled in with what happened.', needsQuestion: false },
+      { id: 'slide9',  section: 'slides', slide: 9,  tab: 'Reflect',       label: 'Slide 9 · Planning & Reflection',     desc: 'Plan → draft → quality gate FAILS with reasons → revision → PASS.', needsQuestion: false },
+      { id: 'slide10', section: 'slides', slide: 10, tab: 'Memory',        label: 'Slide 10 · Memory (5 types)',         desc: '"Make it shorter" with/without history · preference saved to disk survives a new session · "book the usual room" resolves from an episode log.', needsQuestion: false },
+      { id: 'slide11', section: 'slides', slide: 11, tab: 'Multi-agent',   label: 'Slide 11 · Multi-agent & Orchestrator', desc: 'Planner splits the job → 3 specialists (each with private data) → SQL agent times out and is retried → Reviewer merges the brief.', needsQuestion: false },
+      { id: 'slide12', section: 'slides', slide: 12, tab: 'Analogy',       label: 'Slide 12 · Real-world analogy',       desc: 'Construction-site AND kitchen analogies side by side — a talking aid, no LLM call.', needsQuestion: false },
+      { id: 'slide13', section: 'slides', slide: 13, tab: 'Capstone',      label: 'Slide 13 · Capstone',                 desc: '"Book me a dentist appointment" lights up [PROMPT] [MEMORY] [AGENT] [TOOL] [REASONING] [REFLECTION] tags as each concept fires.', needsQuestion: false },
+
+      // ─── Coding lab — the original Day 1 ResearchPlan demos ────────────
+      { id: 'plan',           section: 'lab', label: 'Plan a question',                 desc: 'Question → validated ResearchPlan JSON.', needsQuestion: true },
+      { id: 'raw_vs_parsed',  section: 'lab', label: 'Raw LLM vs parsed chain',         desc: 'Same ask, unstructured text vs typed JSON — see why parsers matter.', needsQuestion: true },
+      { id: 'prompt_preview', section: 'lab', label: 'Preview the real prompt',         desc: 'The exact prompt (with format instructions) sent to the model. No LLM call.', needsQuestion: true },
     ],
   },
   {

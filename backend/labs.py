@@ -430,10 +430,37 @@ def d7_hitl(q):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# DAY 1 — SLIDE DEMOS (one per deck slide, imported from slide_demos.py)
+# ═══════════════════════════════════════════════════════════════════════════
+# The 12 slide demos are self-contained: no user question required. Each is
+# wrapped so the shared `run()` dispatcher can pass its ignored `q` argument.
+try:
+    from backend import slide_demos as _slide_demos  # normal import
+except ImportError:  # when launched as `python backend/app.py`
+    import slide_demos as _slide_demos  # type: ignore
+
+
+def _wrap_slide(fn):
+    def _run(_q=""):  # ignore the dispatcher's question argument
+        return fn()
+    return _run
+
+
+_SLIDE_DEMOS_D1 = {name: _wrap_slide(fn) for name, fn in _slide_demos.SLIDE_DEMOS.items()}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Registry + dispatch
 # ═══════════════════════════════════════════════════════════════════════════
 REGISTRY = {
-    1: {"plan": d1_plan, "raw_vs_parsed": d1_raw_vs_parsed, "prompt_preview": d1_prompt_preview},
+    1: {
+        # slide demos first — one per deck slide (2..13)
+        **_SLIDE_DEMOS_D1,
+        # then the original coding-lab demos (ResearchPlan pipeline)
+        "plan": d1_plan,
+        "raw_vs_parsed": d1_raw_vs_parsed,
+        "prompt_preview": d1_prompt_preview,
+    },
     2: {"compare": d2_compare, "answer": d2_answer, "chunking": d2_chunking, "topk": d2_topk},
     3: {"full": d3_full, "plan_only": d3_plan_only, "one_step": d3_one_step},
     4: {"agent": d4_agent, "resilience": d4_resilience, "routing": d4_routing},

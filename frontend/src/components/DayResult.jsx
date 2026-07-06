@@ -204,6 +204,9 @@ export default function DayResult({ data, accent }) {
         </Panel>
       )
 
+    case 'slide_demo':
+      return <SlideDemo data={data} accent={accent} />
+
     default:
       return <pre className="text-xs text-slate-400 overflow-x-auto">{JSON.stringify(data, null, 2)}</pre>
   }
@@ -235,4 +238,178 @@ function Trace({ trace, accent }) {
       </ol>
     </div>
   )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SlideDemo — renders a Day-1 slide's live event stream (heading / note /
+// prompt_block / model_response / prob_bars / tool_call / observation / tag /
+// table / verdict / final / takeaway). One-off block per step type keeps each
+// piece readable and lets us style teaching cues (prob bars, verdict badges,
+// tag pills) distinctly.
+// ─────────────────────────────────────────────────────────────────────────────
+function SlideDemo({ data, accent }) {
+  return (
+    <div className="space-y-2">
+      {/* Slide banner — mirrors the CLI's boxed header */}
+      <div className={`rounded-xl ${accent.bg} ${accent.ring} ring-1 px-4 py-3`}>
+        <div className={`text-[11px] font-semibold uppercase tracking-wide ${accent.text}`}>Slide {data.slide} · Live demo</div>
+        <div className="text-sm font-bold text-slate-100">{data.title}</div>
+        {data.subtitle && <div className="text-xs text-slate-300 mt-0.5">{data.subtitle}</div>}
+      </div>
+
+      {/* Steps */}
+      <div className="space-y-2">
+        {(data.steps || []).map((s, i) => (
+          <SlideStep key={i} step={s} accent={accent} idx={i} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SlideStep({ step, accent, idx }) {
+  const delay = { animationDelay: `${idx * 30}ms` }
+
+  switch (step.type) {
+    case 'heading':
+      return (
+        <div className="pt-2 animate-fadeInUp" style={delay}>
+          <div className={`text-[11px] font-semibold uppercase tracking-wider ${accent.text} flex items-center gap-2`}>
+            <span className={`inline-block h-2 w-2 rounded-full ${accent.dot}`} /> ▶ {step.label}
+          </div>
+          {step.desc && <div className="text-[11px] text-slate-400 pl-4">{step.desc}</div>}
+        </div>
+      )
+
+    case 'note':
+      return (
+        <p className="text-xs text-slate-400 italic pl-4 animate-fadeInUp" style={delay}>{step.text}</p>
+      )
+
+    case 'prompt_block':
+      return (
+        <div className="rounded-lg bg-black/30 border border-white/5 px-3 py-2 animate-fadeInUp" style={delay}>
+          <span className={`inline-block rounded ${accent.bg} px-1.5 py-0.5 text-[10px] font-bold ${accent.text} mr-2 align-top`}>[{step.label}]</span>
+          <span className="text-xs text-slate-300 whitespace-pre-wrap">{step.text}</span>
+        </div>
+      )
+
+    case 'model_response':
+      return (
+        <div className="rounded-lg bg-emerald-500/5 border border-emerald-400/20 px-3 py-2 animate-fadeInUp" style={delay}>
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-300 mb-1">{step.who || 'Model'}</div>
+          <div className="text-sm text-slate-100 whitespace-pre-wrap">{step.text}</div>
+        </div>
+      )
+
+    case 'prob_bars': {
+      const chosen = step.chosen
+      return (
+        <div className="rounded-lg bg-black/30 border border-white/5 px-3 py-2 animate-fadeInUp" style={delay}>
+          <div className="text-xs text-slate-400 mb-1">
+            Prompt: <span className="text-slate-200 italic">"{step.prompt}"</span>
+            {chosen && (<>&nbsp;·&nbsp;chosen: <span className="text-emerald-300 font-mono">{chosen}</span></>)}
+          </div>
+          <div className="space-y-1">
+            {(step.candidates || []).map((c, j) => {
+              const pct = Math.round((c.prob || 0) * 100)
+              return (
+                <div key={j} className="flex items-center gap-2 text-xs">
+                  <span className="font-mono text-slate-200 w-16 truncate">{c.token}</span>
+                  <div className="flex-1 h-2 rounded bg-white/5 overflow-hidden">
+                    <div className={`h-full bg-gradient-to-r ${accent.grad}`} style={{ width: `${Math.max(2, pct)}%` }} />
+                  </div>
+                  <span className="text-slate-400 w-12 text-right">{(c.prob * 100).toFixed(1)}%</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )
+    }
+
+    case 'tool_call':
+      return (
+        <div className="rounded-lg bg-amber-500/5 border border-amber-400/25 px-3 py-2 font-mono text-xs text-amber-200 animate-fadeInUp" style={delay}>
+          <span className="text-amber-400 font-semibold">🔧 tool_call → </span>
+          {step.name}({Object.entries(step.args || {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')})
+          {step.id && <span className="text-amber-400/60 ml-2">#{String(step.id).slice(0, 10)}…</span>}
+        </div>
+      )
+
+    case 'observation':
+      return (
+        <div className="rounded-lg bg-slate-500/10 border border-slate-500/20 px-3 py-2 text-xs animate-fadeInUp" style={delay}>
+          <span className="text-slate-400 font-semibold">👁 observation → </span>
+          <span className="text-slate-100 whitespace-pre-wrap">{step.text}</span>
+        </div>
+      )
+
+    case 'tag':
+      return (
+        <div className="flex items-start gap-2 text-xs animate-fadeInUp" style={delay}>
+          <span className={`shrink-0 rounded-md ${accent.bg} px-1.5 py-0.5 font-bold ${accent.text} uppercase tracking-wide`}>[{step.label}]</span>
+          <span className="text-slate-300 whitespace-pre-wrap">{step.text}</span>
+        </div>
+      )
+
+    case 'table':
+      return (
+        <div className="overflow-x-auto rounded-lg bg-black/30 border border-white/5 animate-fadeInUp" style={delay}>
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr>
+                {(step.headers || []).map((h, j) => (
+                  <th key={j} className={`text-left px-3 py-2 ${accent.text} font-semibold uppercase tracking-wide border-b border-white/10`}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(step.rows || []).map((r, ri) => (
+                <tr key={ri} className="border-b border-white/5 last:border-0">
+                  {r.map((c, ci) => (
+                    <td key={ci} className={`px-3 py-2 align-top ${ci === 0 ? 'font-semibold text-slate-200' : 'text-slate-300'}`}>{c}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+
+    case 'verdict':
+      return (
+        <div className={`rounded-lg px-3 py-2 border animate-fadeInUp ${step.passed ? 'bg-emerald-500/10 border-emerald-400/30' : 'bg-rose-500/10 border-rose-400/30'}`} style={delay}>
+          <div className={`text-xs font-bold uppercase tracking-wider ${step.passed ? 'text-emerald-300' : 'text-rose-300'}`}>
+            {step.passed ? '✓ verdict: PASS' : '✗ verdict: NEEDS REVISION'}
+          </div>
+          {!step.passed && (step.issues || []).length > 0 && (
+            <ul className="mt-1 space-y-0.5 text-xs text-rose-200">
+              {step.issues.map((iss, j) => <li key={j}>• {iss}</li>)}
+            </ul>
+          )}
+        </div>
+      )
+
+    case 'final':
+      return (
+        <div className={`rounded-xl bg-gradient-to-br ${accent.grad} p-[1px] animate-fadeInUp`} style={delay}>
+          <div className="rounded-xl bg-slate-950/85 px-4 py-3">
+            <div className={`text-[10px] font-bold uppercase tracking-wider ${accent.text} mb-1`}>Final answer</div>
+            <div className="text-sm text-slate-100 whitespace-pre-wrap"><ReportView text={step.text} /></div>
+          </div>
+        </div>
+      )
+
+    case 'takeaway':
+      return (
+        <div className="rounded-lg bg-fuchsia-500/10 border border-fuchsia-400/30 px-3 py-2 animate-fadeInUp" style={delay}>
+          <span className="text-fuchsia-300 font-bold text-xs">➜ Takeaway: </span>
+          <span className="text-fuchsia-100 text-xs">{step.text}</span>
+        </div>
+      )
+
+    default:
+      return null
+  }
 }
