@@ -86,19 +86,115 @@ def _d2_corpus_label(ctx):
     return "the built-in sample docs"
 
 
-def d2_compare(q, ctx=None):
-    from shared.rag import sources_of
+def _cid_of(d):
+    """Chunk id for display: uploaded docs carry 'chunk_id'; the built-in corpus
+    carries 'start_index'. Returns None when neither is present."""
+    cid = d.metadata.get("chunk_id", d.metadata.get("start_index"))
+    return int(cid) if cid is not None else None
 
+
+def _doc_brief(d, rank, score=None):
+    """One retrieved chunk, made transparent: which file, which chunk, a preview.
+    `rank` is the 1-based position the retriever gave."""
+    import os
+
+    brief = {
+        "rank": rank,
+        "source": os.path.basename(str(d.metadata.get("source", "?"))),
+        "preview": d.page_content[:200].strip(),
+    }
+    cid = _cid_of(d)
+    if cid is not None:
+        brief["chunk_id"] = cid
+    if score is not None:
+        brief["score"] = round(float(score), 4)
+    return brief
+
+
+def _dedup_briefs(ranked, top, score_key="score", ndigits=4):
+    """Collapse chunks with identical text so *distinct* content surfaces.
+
+    `ranked` is a best-first list of (doc, value | None). Repeated chunks (same
+    text, common in duplicative corpora) are merged into one brief that records
+    how many copies exist and their chunk ids. Returns (briefs, collapsed) where
+    `collapsed` is how many duplicate copies were folded away."""
+    import os
+
+    seen: dict[str, int] = {}
+    groups: list[dict] = []
+    collapsed = 0
+    for doc, value in ranked:
+        text = doc.page_content.strip()
+        key = " ".join(text.split())  # normalize whitespace before comparing
+        cid = _cid_of(doc)
+        if key in seen:
+            collapsed += 1
+            g = groups[seen[key]]
+            g["dup_count"] += 1
+            if cid is not None and len(g["dup_ids"]) < 12:
+                g["dup_ids"].append(cid)
+            continue
+        seen[key] = len(groups)
+        groups.append({
+            "source": os.path.basename(str(doc.metadata.get("source", "?"))),
+            "preview": text[:200],
+            "dup_count": 1,
+            "dup_ids": [cid] if cid is not None else [],
+            "_cid": cid,
+            "_value": value,
+        })
+
+    briefs = []
+    for r, g in enumerate(groups[:top]):
+        b = {
+            "rank": r + 1,
+            "source": g["source"],
+            "preview": g["preview"],
+            "dup_count": g["dup_count"],
+            "dup_ids": g["dup_ids"],
+        }
+        if g["_cid"] is not None:
+            b["chunk_id"] = g["_cid"]
+        if g["_value"] is not None:
+            b[score_key] = round(float(g["_value"]), ndigits)
+        briefs.append(b)
+    return briefs, collapsed
+
+
+def _briefs_marked(docs):
+    """Brief every doc WITHOUT collapsing, but mark each chunk whose text repeats
+    an earlier one in the same list (`same_as` = rank of the first occurrence).
+    Used by Sim-vs-MMR so similarity's redundancy is visible next to MMR's spread."""
+    briefs = []
+    first_seen: dict[str, int] = {}
+    for i, d in enumerate(docs):
+        b = _doc_brief(d, i + 1)
+        key = " ".join(d.page_content.split())
+        if key in first_seen:
+            b["same_as"] = first_seen[key]
+        else:
+            first_seen[key] = i + 1
+        briefs.append(b)
+    return briefs
+
+
+def d2_compare(q, ctx=None):
     vs = _d2_index(ctx)
     sim = vs.as_retriever(search_type="similarity", search_kwargs={"k": 4}).invoke(q)
-    mmr = vs.as_retriever(search_type="mmr", search_kwargs={"k": 4, "fetch_k": 20}).invoke(q)
+    # A wide fetch_k gives MMR enough distinct candidates to diversify over — with
+    # the default 20 on a repetitive corpus, every candidate is a near-duplicate
+    # and MMR can't do its job.
+    mmr = vs.as_retriever(
+        search_type="mmr", search_kwargs={"k": 4, "fetch_k": 60, "lambda_mult": 0.5}
+    ).invoke(q)
     return {
         "kind": "compare",
         "corpus": _d2_corpus_label(ctx),
+        "query": q,
         "label_a": "similarity (closest)",
-        "sources_a": sources_of(sim),
+        "docs_a": _briefs_marked(sim),
         "label_b": "MMR (relevance + diversity)",
-        "sources_b": sources_of(mmr),
+        "docs_b": _briefs_marked(mmr),
     }
 
 
@@ -107,7 +203,11 @@ def d2_answer(q, ctx=None):
     from shared.rag import format_docs_with_citations, sources_of
 
     vs = _d2_index(ctx)
-    docs = vs.as_retriever(search_type="mmr", search_kwargs={"k": 4, "fetch_k": 20}).invoke(q)
+    # Wide fetch_k so MMR grounds the answer in DISTINCT chunks, not k copies of
+    # the same passage (which wastes context on a repetitive corpus).
+    docs = vs.as_retriever(
+        search_type="mmr", search_kwargs={"k": 4, "fetch_k": 60, "lambda_mult": 0.5}
+    ).invoke(q)
     from langchain_core.messages import HumanMessage, SystemMessage
 
     answer = get_llm(temperature=None).invoke([
@@ -116,7 +216,16 @@ def d2_answer(q, ctx=None):
                       "say so plainly."),
         HumanMessage(f"Question: {q}\n\nContext:\n{format_docs_with_citations(docs)}"),
     ]).content
-    return {"kind": "answer", "corpus": _d2_corpus_label(ctx), "answer": answer, "sources": sources_of(docs)}
+    return {
+        "kind": "answer",
+        "corpus": _d2_corpus_label(ctx),
+        "query": q,
+        "answer": answer,
+        "sources": sources_of(docs),
+        # The exact numbered chunks the model was allowed to use — so it's clear
+        # the answer is grounded in these and nothing else.
+        "context": [_doc_brief(d, i + 1) for i, d in enumerate(docs)],
+    }
 
 
 def d2_chunking(q, ctx=None):
@@ -132,19 +241,19 @@ def d2_chunking(q, ctx=None):
 
 
 def d2_topk(q, ctx=None):
-    import os
-
     vs = _d2_index(ctx)
-    hits = vs.similarity_search_with_score(q, k=4)
-    items = [
-        {
-            "source": os.path.basename(d.metadata.get("source", "?")),
-            "score": round(float(score), 4),
-            "preview": d.page_content[:180].strip(),
-        }
-        for d, score in hits
-    ]
-    return {"kind": "retrieved", "corpus": _d2_corpus_label(ctx), "items": items}
+    # Pull a wide pool, then collapse identical chunks so the 4 shown are
+    # DISTINCT content — otherwise a duplicative corpus returns the same chunk
+    # k times and retrieval looks broken.
+    hits = vs.similarity_search_with_score(q, k=30)
+    items, collapsed = _dedup_briefs(hits, top=4, score_key="score", ndigits=4)
+    return {
+        "kind": "retrieved",
+        "corpus": _d2_corpus_label(ctx),
+        "query": q,
+        "items": items,
+        "collapsed": collapsed,
+    }
 
 
 def d2_load(q, ctx=None):
@@ -171,8 +280,6 @@ def d2_load(q, ctx=None):
 
 def d2_embed(q, ctx=None):
     """Step 3 · EMBED — text becomes a vector; close vectors = similar meaning."""
-    import os
-
     import numpy as np
 
     from config import get_embeddings, settings
@@ -186,7 +293,12 @@ def d2_embed(q, ctx=None):
         return float(a @ b / ((np.linalg.norm(a) * np.linalg.norm(b)) or 1.0))
 
     sims = [cos(qv, v) for v in vecs]
-    best = int(np.argmax(sims))
+    # Rank ALL chunks by closeness, then collapse identical chunks so the top 5
+    # are DISTINCT — a duplicative corpus otherwise shows the same chunk 5× at
+    # the same cosine, and a single argmax chunk is often just the doc header.
+    order = sorted(range(len(sims)), key=lambda i: sims[i], reverse=True)
+    ranked = [(chunks[i], sims[i]) for i in order]
+    neighbors, collapsed = _dedup_briefs(ranked, top=5, score_key="cosine", ndigits=3)
     model = {
         "fastembed": f"fastembed · {settings.fastembed_model} (local)",
         "azure": "Azure OpenAI embeddings",
@@ -200,11 +312,10 @@ def d2_embed(q, ctx=None):
         "count": len(chunks),
         "query": q,
         "head": [round(float(x), 3) for x in qv[:8]],
-        "nearest": {
-            "source": os.path.basename(chunks[best].metadata.get("source", "?")),
-            "cosine": round(sims[best], 3),
-            "preview": chunks[best].page_content[:200].strip(),
-        },
+        "neighbors": neighbors,
+        "collapsed": collapsed,
+        # kept for backward compatibility with any older frontend
+        "nearest": {k: neighbors[0][k] for k in ("source", "cosine", "preview")},
     }
 
 
@@ -215,8 +326,6 @@ def d2_break(q, ctx=None):
     from langchain_chroma import Chroma
 
     from config import FakeDeterministicEmbeddings, get_embeddings, get_vectorstore_dir, settings
-
-    from shared.rag import sources_of
 
     vs = _d2_index(ctx)
     healthy = vs.as_retriever(search_type="similarity", search_kwargs={"k": 4}).invoke(q)
@@ -234,10 +343,11 @@ def d2_break(q, ctx=None):
     return {
         "kind": "compare",
         "corpus": _d2_corpus_label(ctx),
+        "query": q,
         "label_a": "✅ index & query use the SAME embedding model",
-        "sources_a": sources_of(healthy),
+        "docs_a": _briefs_marked(healthy),
         "label_b": "💥 query embedded with a DIFFERENT model → wrong chunks (no error!)",
-        "sources_b": sources_of(broken),
+        "docs_b": _briefs_marked(broken),
     }
 
 
@@ -580,6 +690,32 @@ _SLIDE_DEMOS_D1 = {name: _wrap_slide(fn) for name, fn in _slide_demos.SLIDE_DEMO
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# DAY 3 — LANGGRAPH MODULES (12 sub-tabs, imported from langgraph_demos.py)
+# ═══════════════════════════════════════════════════════════════════════════
+# Modules 3, 5, 6, 10 accept an optional question (they call the LLM). The rest
+# ignore it. We wrap uniformly so `run()` can always pass `q` without checking.
+try:
+    from backend import langgraph_demos as _lg_demos  # normal import
+except ImportError:  # when launched as `python backend/app.py`
+    import langgraph_demos as _lg_demos  # type: ignore
+
+
+import inspect as _inspect
+
+
+def _wrap_lg(fn):
+    accepts_q = "question" in _inspect.signature(fn).parameters
+
+    def _run(q=""):
+        return fn(q) if accepts_q else fn()
+
+    return _run
+
+
+_LG_MODULES_D3 = {name: _wrap_lg(fn) for name, fn in _lg_demos.MODULES.items()}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Registry + dispatch
 # ═══════════════════════════════════════════════════════════════════════════
 REGISTRY = {
@@ -600,7 +736,14 @@ REGISTRY = {
         "answer": d2_answer,
         "break": d2_break,
     },
-    3: {"full": d3_full, "plan_only": d3_plan_only, "one_step": d3_one_step},
+    3: {
+        # 12 LangGraph "modules" — one per sub-tab
+        **_LG_MODULES_D3,
+        # legacy short demos (kept for backwards compatibility / quick runs)
+        "full": d3_full,
+        "plan_only": d3_plan_only,
+        "one_step": d3_one_step,
+    },
     4: {"agent": d4_agent, "resilience": d4_resilience, "routing": d4_routing},
     5: {"short": d5_short, "long": d5_long, "compaction": d5_compaction},
     6: {"multi": d6_multi, "resume": d6_resume},

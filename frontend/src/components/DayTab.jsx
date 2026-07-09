@@ -29,27 +29,33 @@ export default function DayTab({ day }) {
     }
   }
 
-  // ── Day 1: stacked layout — full-width concept tabs (Slide 1 is the first
-  //    tab, showing the deck cover), then the active demo panel, then a
-  //    collapsible reference section at the bottom.
+  // ── Day 1 + Day 3: stacked layout — full-width sub-tabs (one per slide or
+  //    module), then the active demo panel, then a collapsible reference
+  //    section at the bottom.
   if (hasSlideDemos) {
+    const questionHint = day.n === 3
+      ? 'Optional research question (used by modules that call the LLM)'
+      : day.n === 2
+      ? 'Your question — drives Retrieve, Sim vs MMR & Answer below (ask about your uploaded files!)'
+      : 'Optional question (used by the Lab tab)'
+    // Day 2 reads top-to-bottom as a flow: ① upload your docs → ② ask a question
+    // about them → ③ run each stage. Other slide-days just show the question box.
+    const questionBox = anyNeedsQuestion && (
+      <div className="glass rounded-2xl p-4">
+        <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">
+          {questionHint}
+        </label>
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder={day.n === 2 ? 'e.g. “What does my document say about …?” (a default is used if empty)' : 'A sensible default is used if empty'}
+          className="w-full rounded-lg bg-slate-900/60 border border-white/10 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50"
+        />
+      </div>
+    )
+
     return (
       <div className="space-y-6">
-        {/* Optional question input, only used by the Lab tab. */}
-        {anyNeedsQuestion && (
-          <div className="glass rounded-2xl p-4">
-            <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">
-              Optional question (used by the Lab tab)
-            </label>
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="A sensible default is used if empty"
-              className="w-full rounded-lg bg-slate-900/60 border border-white/10 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50"
-            />
-          </div>
-        )}
-
         {day.n === 2 && (
           <Day2Upload
             accent={accent}
@@ -58,6 +64,8 @@ export default function DayTab({ day }) {
             onClear={() => { setSession(null); setCorpus(null); setRuns({}) }}
           />
         )}
+
+        {questionBox}
 
         <SlideTabs day={day} runs={runs} runDemo={runDemo} accent={accent} />
 

@@ -104,17 +104,17 @@ mmr = vs.as_retriever(search_type="mmr",
   {
     n: 3,
     key: 'day3',
-    title: 'LangGraph Core',
-    tag: 'Planner → Executor → Synthesize (with a loop)',
+    title: 'LangGraph Core — Planner → Executor → Memory',
+    tag: 'From straight-line chains to a graph that can loop, decide & remember',
     accent: 'violet',
     why: 'Conditional edges = loops & decisions. That’s the leap from chain to agent.',
-    flow: ['plan', 'executor ↺ (loop over sub-questions)', 'synthesize'],
+    flow: ['State (TypedDict)', 'Planner', 'Executor ↺', 'Router', 'Memory', 'Synthesize'],
     carriesOver: 'planner_node calls Day 1; executor_node calls Day 2. This skeleton is extended every later day.',
     explain: [
       { h: 'From line to graph', body: 'A chain runs one straight line. A **graph** models the app as nodes (units of work) and edges (how control moves). A shared **State** object flows through and each node returns updates to it.' },
       { h: 'The State', body: 'Our state holds `question, topic, plan, cursor, results, final`. The planner fills `plan` (sub-questions) and resets `cursor=0`; the executor answers `plan[cursor]` and increments the cursor; synthesize combines everything.' },
       { h: 'The conditional edge (the whole point)', body: 'After the executor runs, a **router** inspects the state: more sub-questions left? loop back to executor. Done? go to synthesize. That branch is what makes this an *agent loop* instead of a fixed pipeline — a plain chain cannot loop.' },
-      { h: 'Make it visible', body: 'The solution prints state between nodes so you can literally watch the loop iterate. The demo below returns the same node-by-node trace.' },
+      { h: 'Make it visible', body: 'Every module below shows state before and after each node, animates the currently-active node in the graph, and (Module 10) actually streams a compiled `StateGraph` end-to-end.' },
     ],
     snippets: [
       { title: 'Typed state', code: `class ResearchState(TypedDict, total=False):
@@ -131,10 +131,22 @@ def executor_node(s):  # Day 2
     {"executor": "executor",     # loop back
      "synthesize": "synthesize"}) # or finish` },
     ],
+    sections: [
+      { id: 'modules', label: 'LangGraph modules', desc: 'One live module per sub-tab — walk them in order for the full picture.' },
+    ],
     demos: [
-      { id: 'full', label: 'Run the graph', desc: 'Full plan → executor loop → synthesize, with the node trace.', needsQuestion: true },
-      { id: 'plan_only', label: 'Just the planner node', desc: 'See a single node’s output in isolation.', needsQuestion: true },
-      { id: 'one_step', label: 'One executor step', desc: 'Answer just the first sub-question (one loop iteration).', needsQuestion: true },
+      { id: 'mod_01_intro',       section: 'modules', slide: 1,  tab: 'M1 · Intro',        label: 'Module 1 · Chain vs LangGraph',           desc: 'Traditional chain (Prompt → LLM → Output) versus a graph that can plan, execute, route, and remember. No LLM call.',                                       needsQuestion: false },
+      { id: 'mod_02_chain_fail',  section: 'modules', slide: 2,  tab: 'M2 · Why chains fail', label: 'Module 2 · Why chains fail',           desc: 'Interactive simulation: chain cannot retry a bad answer; the LangGraph version routes back through the executor and recovers. No LLM call.',                needsQuestion: false },
+      { id: 'mod_03_state',       section: 'modules', slide: 3,  tab: 'M3 · State',        label: 'Module 3 · Live state visualization',     desc: 'Real planner call, then one executor step — watch the TypedDict change (highlighted diff) after every node. LLM call.',                                    needsQuestion: true },
+      { id: 'mod_04_builder',     section: 'modules', slide: 4,  tab: 'M4 · Graph builder', label: 'Module 4 · Graph builder',                desc: 'The Mermaid graph and the exact `StateGraph.add_node / add_conditional_edges` code that produces it. No LLM call.',                                      needsQuestion: false },
+      { id: 'mod_05_planner',     section: 'modules', slide: 5,  tab: 'M5 · Planner',      label: 'Module 5 · Planner demo',                 desc: 'One fuzzy goal → the planner writes topic + plan into state, cursor reset to 0. LLM call.',                                                                 needsQuestion: true },
+      { id: 'mod_06_executor',    section: 'modules', slide: 6,  tab: 'M6 · Executor',     label: 'Module 6 · Executor demo (one step)',     desc: 'The executor grabs `plan[cursor]`, retrieves + answers, and advances the cursor. Includes a progress bar. LLM + RAG call.',                             needsQuestion: true },
+      { id: 'mod_07_routing',     section: 'modules', slide: 7,  tab: 'M7 · Routing',      label: 'Module 7 · Conditional routing',          desc: 'Three states → three router decisions. The router is one Python function, and it is the whole point of Day 3. No LLM call.',                                needsQuestion: false },
+      { id: 'mod_08_memory',      section: 'modules', slide: 8,  tab: 'M8 · Memory',       label: 'Module 8 · Memory & reducers',            desc: 'How `results` grows without clobbering itself across three executor iterations. `Annotated[list, add]` explained. No LLM call.',                          needsQuestion: false },
+      { id: 'mod_09_react_vs_pe', section: 'modules', slide: 9,  tab: 'M9 · ReAct vs P-E', label: 'Module 9 · ReAct vs Plan-Execute',        desc: 'Side-by-side comparison: cost, speed, adaptability, and when to pick each loop shape. No LLM call.',                                                       needsQuestion: false },
+      { id: 'mod_10_live',        section: 'modules', slide: 10, tab: 'M10 · Live run',    label: 'Module 10 · Live LangGraph execution',    desc: 'Actually compiles a `StateGraph` and streams `.stream(...)` — every node fire produces a state-diff card and lights up the graph. Multiple LLM calls.',   needsQuestion: true },
+      { id: 'mod_11_code',        section: 'modules', slide: 11, tab: 'M11 · Code',        label: 'Module 11 · Code viewer',                 desc: 'The full Python behind every visualization — planner, executor, router, synthesize, wiring — with the loop-critical lines highlighted. No LLM call.',      needsQuestion: false },
+      { id: 'mod_12_loop',        section: 'modules', slide: 12, tab: 'M12 · Infinite loop', label: 'Module 12 · Infinite loop demo',        desc: 'A broken router that never returns END: watch the token counter climb, then see the two safety belts (MAX_STEPS + recursion_limit). No LLM call.',            needsQuestion: false },
     ],
   },
   {
