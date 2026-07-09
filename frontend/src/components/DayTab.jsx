@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ACCENTS } from '../data/days.js'
 import DayResult from './DayResult.jsx'
+import Day2Upload from './Day2Upload.jsx'
 import FlowDiagram from './FlowDiagram.jsx'
 import ReportView from './ReportView.jsx'
 import { IconBolt } from './Icons.jsx'
@@ -9,6 +10,8 @@ export default function DayTab({ day }) {
   const accent = ACCENTS[day.accent]
   const [q, setQ] = useState('')
   const [runs, setRuns] = useState({}) // demoId -> { loading, data }
+  const [session, setSession] = useState(null) // Day 2: uploaded-corpus id
+  const [corpus, setCorpus] = useState(null)   // Day 2: {files, chunks, dim}
   const anyNeedsQuestion = day.demos.some((d) => d.needsQuestion)
   const hasSlideDemos = day.demos.some((d) => typeof d.slide === 'number')
 
@@ -17,6 +20,7 @@ export default function DayTab({ day }) {
     try {
       const qs = new URLSearchParams({ demo: demo.id })
       if (demo.needsQuestion && q.trim()) qs.set('question', q.trim())
+      if (session) qs.set('session', session) // run against the uploaded corpus
       const r = await fetch(`/api/lab/${day.n}?${qs.toString()}`)
       const data = await r.json()
       setRuns((prev) => ({ ...prev, [demo.id]: { loading: false, data } }))
@@ -44,6 +48,15 @@ export default function DayTab({ day }) {
               className="w-full rounded-lg bg-slate-900/60 border border-white/10 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50"
             />
           </div>
+        )}
+
+        {day.n === 2 && (
+          <Day2Upload
+            accent={accent}
+            corpus={corpus}
+            onIndexed={(sid, meta) => { setSession(sid); setCorpus(meta); setRuns({}) }}
+            onClear={() => { setSession(null); setCorpus(null); setRuns({}) }}
+          />
         )}
 
         <SlideTabs day={day} runs={runs} runDemo={runDemo} accent={accent} />

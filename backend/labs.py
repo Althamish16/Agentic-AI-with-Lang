@@ -59,14 +59,42 @@ def d1_prompt_preview(q):
 # ═══════════════════════════════════════════════════════════════════════════
 # DAY 2 — RAG
 # ═══════════════════════════════════════════════════════════════════════════
-def d2_compare(q):
-    from shared.rag import ensure_index, get_retriever, sources_of
+# Day 2 demos accept an optional `ctx` — a per-session uploaded corpus (see
+# backend/day2_sessions.py). When present, every stage runs on the learner's
+# uploaded files; when None, they fall back to the built-in data/ corpus.
+def _d2_docs_chunks(ctx, chunk_size=800, chunk_overlap=120):
+    if ctx:
+        return ctx["docs"], ctx["chunks"]
+    from shared.rag import load_documents, split_documents
 
-    ensure_index()
-    sim = get_retriever(k=4, search_type="similarity").invoke(q)
-    mmr = get_retriever(k=4, search_type="mmr").invoke(q)
+    docs = load_documents()
+    return docs, split_documents(docs, chunk_size, chunk_overlap)
+
+
+def _d2_index(ctx):
+    """The vector store to retrieve from: the uploaded session's, or the shared one."""
+    if ctx:
+        return ctx["vs"]
+    from shared.rag import ensure_index
+
+    return ensure_index()
+
+
+def _d2_corpus_label(ctx):
+    if ctx:
+        return f"your {len(ctx['files'])} uploaded file(s)"
+    return "the built-in sample docs"
+
+
+def d2_compare(q, ctx=None):
+    from shared.rag import sources_of
+
+    vs = _d2_index(ctx)
+    sim = vs.as_retriever(search_type="similarity", search_kwargs={"k": 4}).invoke(q)
+    mmr = vs.as_retriever(search_type="mmr", search_kwargs={"k": 4, "fetch_k": 20}).invoke(q)
     return {
         "kind": "compare",
+        "corpus": _d2_corpus_label(ctx),
         "label_a": "similarity (closest)",
         "sources_a": sources_of(sim),
         "label_b": "MMR (relevance + diversity)",
@@ -74,32 +102,40 @@ def d2_compare(q):
     }
 
 
-def d2_answer(q):
-    from shared.rag import answer_question
+def d2_answer(q, ctx=None):
+    from config import get_llm
+    from shared.rag import format_docs_with_citations, sources_of
 
-    a = answer_question(q, k=4)
-    return {"kind": "answer", "answer": a["answer"], "sources": a["sources"]}
+    vs = _d2_index(ctx)
+    docs = vs.as_retriever(search_type="mmr", search_kwargs={"k": 4, "fetch_k": 20}).invoke(q)
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    answer = get_llm(temperature=None).invoke([
+        SystemMessage("You are a research assistant. Answer the question using ONLY the numbered "
+                      "context. Cite sources inline like [1], [2]. If the context is insufficient, "
+                      "say so plainly."),
+        HumanMessage(f"Question: {q}\n\nContext:\n{format_docs_with_citations(docs)}"),
+    ]).content
+    return {"kind": "answer", "corpus": _d2_corpus_label(ctx), "answer": answer, "sources": sources_of(docs)}
 
 
-def d2_chunking(q):
-    from shared.rag import load_documents, split_documents
+def d2_chunking(q, ctx=None):
+    from shared.rag import split_documents
 
-    docs = load_documents()
+    docs, _ = _d2_docs_chunks(ctx)
     variants = []
     for size, overlap in [(300, 30), (800, 120), (1500, 200)]:
         chunks = split_documents(docs, chunk_size=size, chunk_overlap=overlap)
         variants.append({"size": size, "overlap": overlap, "count": len(chunks)})
     sample = split_documents(docs, 800, 120)[0].page_content[:300]
-    return {"kind": "chunks", "variants": variants, "sample": sample}
+    return {"kind": "chunks", "corpus": _d2_corpus_label(ctx), "variants": variants, "sample": sample}
 
 
-def d2_topk(q):
-    from shared.rag import ensure_index
-
-    vs = ensure_index()
-    hits = vs.similarity_search_with_score(q, k=4)
+def d2_topk(q, ctx=None):
     import os
 
+    vs = _d2_index(ctx)
+    hits = vs.similarity_search_with_score(q, k=4)
     items = [
         {
             "source": os.path.basename(d.metadata.get("source", "?")),
@@ -108,7 +144,101 @@ def d2_topk(q):
         }
         for d, score in hits
     ]
-    return {"kind": "retrieved", "items": items}
+    return {"kind": "retrieved", "corpus": _d2_corpus_label(ctx), "items": items}
+
+
+def d2_load(q, ctx=None):
+    """Step 1 · LOAD — show the raw documents as LangChain Document objects."""
+    import os
+
+    docs, _ = _d2_docs_chunks(ctx)
+    items = [
+        {
+            "source": os.path.basename(d.metadata.get("source", "?")),
+            "chars": len(d.page_content),
+            "preview": d.page_content[:180].strip(),
+        }
+        for d in docs
+    ]
+    return {
+        "kind": "documents",
+        "corpus": _d2_corpus_label(ctx),
+        "count": len(docs),
+        "total_chars": sum(len(d.page_content) for d in docs),
+        "items": items,
+    }
+
+
+def d2_embed(q, ctx=None):
+    """Step 3 · EMBED — text becomes a vector; close vectors = similar meaning."""
+    import os
+
+    import numpy as np
+
+    from config import get_embeddings, settings
+
+    _, chunks = _d2_docs_chunks(ctx)
+    emb = get_embeddings()
+    vecs = np.asarray(emb.embed_documents([c.page_content for c in chunks]), dtype=float)
+    qv = np.asarray(emb.embed_query(q), dtype=float)
+
+    def cos(a, b):
+        return float(a @ b / ((np.linalg.norm(a) * np.linalg.norm(b)) or 1.0))
+
+    sims = [cos(qv, v) for v in vecs]
+    best = int(np.argmax(sims))
+    model = {
+        "fastembed": f"fastembed · {settings.fastembed_model} (local)",
+        "azure": "Azure OpenAI embeddings",
+        "openai": "OpenAI text-embedding-3-small",
+    }.get(settings.embeddings_provider, settings.embeddings_provider)
+    return {
+        "kind": "embedding",
+        "corpus": _d2_corpus_label(ctx),
+        "model": model,
+        "dim": int(vecs.shape[1]),
+        "count": len(chunks),
+        "query": q,
+        "head": [round(float(x), 3) for x in qv[:8]],
+        "nearest": {
+            "source": os.path.basename(chunks[best].metadata.get("source", "?")),
+            "cosine": round(sims[best], 3),
+            "preview": chunks[best].page_content[:200].strip(),
+        },
+    }
+
+
+def d2_break(q, ctx=None):
+    """Step 7 · BREAK IT — query with a DIFFERENT embedding model than the index.
+    The vectors live in unrelated coordinate systems, so retrieval returns
+    essentially random chunks — and NOTHING raises. Reuses the 'compare' shape."""
+    from langchain_chroma import Chroma
+
+    from config import FakeDeterministicEmbeddings, get_embeddings, get_vectorstore_dir, settings
+
+    from shared.rag import sources_of
+
+    vs = _d2_index(ctx)
+    healthy = vs.as_retriever(search_type="similarity", search_kwargs={"k": 4}).invoke(q)
+
+    # A deliberately WRONG query embedder, sized to the index dim so it fails
+    # silently (returns junk) rather than erroring on a dimension mismatch.
+    dim = len(get_embeddings().embed_query("dimension probe"))
+    collection = ctx["col"] if ctx else settings.chroma_collection
+    wrong_vs = Chroma(
+        collection_name=collection,
+        embedding_function=FakeDeterministicEmbeddings(dim=dim),
+        persist_directory=str(get_vectorstore_dir()),
+    )
+    broken = wrong_vs.similarity_search(q, k=4)
+    return {
+        "kind": "compare",
+        "corpus": _d2_corpus_label(ctx),
+        "label_a": "✅ index & query use the SAME embedding model",
+        "sources_a": sources_of(healthy),
+        "label_b": "💥 query embedded with a DIFFERENT model → wrong chunks (no error!)",
+        "sources_b": sources_of(broken),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -461,7 +591,15 @@ REGISTRY = {
         "raw_vs_parsed": d1_raw_vs_parsed,
         "prompt_preview": d1_prompt_preview,
     },
-    2: {"compare": d2_compare, "answer": d2_answer, "chunking": d2_chunking, "topk": d2_topk},
+    2: {
+        "load": d2_load,
+        "chunking": d2_chunking,
+        "embed": d2_embed,
+        "topk": d2_topk,
+        "compare": d2_compare,
+        "answer": d2_answer,
+        "break": d2_break,
+    },
     3: {"full": d3_full, "plan_only": d3_plan_only, "one_step": d3_one_step},
     4: {"agent": d4_agent, "resilience": d4_resilience, "routing": d4_routing},
     5: {"short": d5_short, "long": d5_long, "compaction": d5_compaction},
@@ -470,13 +608,21 @@ REGISTRY = {
 }
 
 
-def run(day: int, demo: str = "", question: str = "") -> dict:
+def run(day: int, demo: str = "", question: str = "", session: str = "") -> dict:
     reg = REGISTRY.get(day)
     if not reg:
         return {"error": f"Unknown day {day}"}
     fn = reg.get(demo) or next(iter(reg.values()))  # default = first demo
     q = (question or "").strip() or DEFAULT_QUESTIONS.get(day, "")
     try:
+        # Day 2 demos are session-aware: if the browser uploaded a corpus, run
+        # every stage against THAT index; otherwise fall back to built-in data/.
+        if day == 2:
+            try:
+                from backend import day2_sessions
+            except ImportError:  # when launched as `python backend/app.py`
+                import day2_sessions
+            return fn(q, day2_sessions.resolve(session))
         return fn(q)
     except Exception as e:  # never leak a stack trace to the UI
         return {"kind": "error", "error": f"{type(e).__name__}: {e}"}

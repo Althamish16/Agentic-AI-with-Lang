@@ -28,3 +28,7 @@ tiktoken>=0.7,<1                      # token counting / splitters
 fastapi>=0.110,<1
 uvicorn[standard]>=0.29,<1
 sse-starlette>=2.0,<3                 # Server-Sent Events streaming of agent trace
+
+# --- Day 2 live demo app (streamlit run day2/demos/app.py) ---
+streamlit>=1.40,<2                    # interactive RAG pipeline demo UI
+pypdf>=4.2,<7                         # PDF uploads in the Day 2 demo

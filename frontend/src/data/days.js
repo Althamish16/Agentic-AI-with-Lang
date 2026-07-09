@@ -87,11 +87,18 @@ chunks = split_documents(docs, chunk_size=800, chunk_overlap=120)` },
 mmr = vs.as_retriever(search_type="mmr",
     search_kwargs={"k": 4, "fetch_k": 20}).invoke(q)` },
     ],
+    sections: [
+      { id: 'pipeline', label: 'Pipeline demos', desc: 'One live demo per RAG stage — run left to right for the whole story.' },
+    ],
     demos: [
-      { id: 'compare', label: 'Similarity vs MMR', desc: 'Compare which sources each strategy retrieves.', needsQuestion: true },
-      { id: 'answer', label: 'Answer with citations', desc: 'Retrieve then answer with inline [n] citations.', needsQuestion: true },
-      { id: 'chunking', label: 'Chunking explorer', desc: 'See how chunk size changes the chunk count. No LLM call.', needsQuestion: false },
-      { id: 'topk', label: 'Top-k with scores', desc: 'The actual retrieved chunks + similarity scores. No LLM call.', needsQuestion: true },
+      // ─── One tab per RAG pipeline stage (load → chunk → embed → retrieve → answer) ───
+      { id: 'load',     section: 'pipeline', slide: 1, tab: 'Load',       label: 'Step 1 · Load — files → Documents',        desc: 'Load the sample docs as LangChain Document objects (text + metadata). That metadata is what makes citations possible later. No LLM call.', needsQuestion: false },
+      { id: 'chunking', section: 'pipeline', slide: 2, tab: 'Chunk',      label: 'Step 2 · Chunk — split into pieces',       desc: 'See how chunk size/overlap change the number of chunks, with a sample chunk. The classic RAG quality knob. No LLM call.', needsQuestion: false },
+      { id: 'embed',    section: 'pipeline', slide: 3, tab: 'Embed',      label: 'Step 3 · Embed — text → vectors',          desc: 'Turn chunks into vectors and measure how close your question lands to the nearest chunk. Close = similar meaning. No LLM call.', needsQuestion: true },
+      { id: 'topk',     section: 'pipeline', slide: 4, tab: 'Retrieve',   label: 'Step 4 · Retrieve — top-k with scores',    desc: 'The actual chunks nearest the query vector, with similarity scores. No LLM call.', needsQuestion: true },
+      { id: 'compare',  section: 'pipeline', slide: 5, tab: 'Sim vs MMR', label: 'Step 5 · Similarity vs MMR',               desc: 'Same k, two strategies: closest chunks vs relevant-AND-diverse chunks. No LLM call.', needsQuestion: true },
+      { id: 'answer',   section: 'pipeline', slide: 6, tab: 'Answer',     label: 'Step 6 · Answer with citations',           desc: 'Retrieve, then answer using ONLY those chunks — with inline [n] citations back to the sources.', needsQuestion: true },
+      { id: 'break',    section: 'pipeline', slide: 7, tab: 'Break it',   label: 'Step 7 · Break it — embedding mismatch',    desc: 'Query with a DIFFERENT embedding model than the index: retrieval silently returns the wrong chunks, no error raised. No LLM call.', needsQuestion: true },
     ],
   },
   {

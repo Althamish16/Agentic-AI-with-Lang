@@ -14,6 +14,12 @@ export default function DayResult({ data, accent }) {
     </span>
   )
 
+  // Day 2 results carry a `corpus` label ("your N uploaded files" / "built-in
+  // sample docs") so it's always clear what the demo just ran against.
+  const corpusNote = data.corpus ? (
+    <p className="mb-2 text-[11px] text-slate-500">running on: <span className={accent.text}>{data.corpus}</span></p>
+  ) : null
+
   switch (data.kind) {
     case 'plan':
       return (
@@ -50,6 +56,7 @@ export default function DayResult({ data, accent }) {
     case 'compare':
       return (
         <Panel title="Retrieval — two strategies">
+          {corpusNote}
           <div className="space-y-2 text-sm">
             <div>{data.label_a}:<div className="flex flex-wrap gap-1 mt-1">{data.sources_a.map((s) => <Src key={s}>{s}</Src>)}</div></div>
             <div>{data.label_b}:<div className="flex flex-wrap gap-1 mt-1">{data.sources_b.map((s) => <Src key={s}>{s}</Src>)}</div></div>
@@ -60,6 +67,7 @@ export default function DayResult({ data, accent }) {
     case 'answer':
       return (
         <div className="space-y-3">
+          {corpusNote}
           {data.heading && <p className={`text-sm ${accent.text}`}>{data.heading}</p>}
           <Panel title="Answer"><ReportView text={data.answer} /><div className="mt-2 flex flex-wrap gap-1">{data.sources.map((s) => <Src key={s}>{s}</Src>)}</div></Panel>
         </div>
@@ -68,6 +76,7 @@ export default function DayResult({ data, accent }) {
     case 'chunks':
       return (
         <Panel title="Chunking — size changes the number of chunks">
+          {corpusNote}
           <table className="w-full text-sm mb-3">
             <thead><tr className="text-slate-400 text-xs"><th className="text-left py-1">chunk size</th><th className="text-left">overlap</th><th className="text-left"># chunks</th></tr></thead>
             <tbody>{data.variants.map((v) => <tr key={v.size} className="text-slate-200"><td className="py-0.5">{v.size}</td><td>{v.overlap}</td><td className={accent.text}>{v.count}</td></tr>)}</tbody>
@@ -80,6 +89,7 @@ export default function DayResult({ data, accent }) {
     case 'retrieved':
       return (
         <Panel title="Top-k retrieved chunks (lower score = closer)">
+          {corpusNote}
           <div className="space-y-2">
             {data.items.map((it, i) => (
               <div key={i} className="rounded-lg bg-black/20 p-2">
@@ -89,6 +99,37 @@ export default function DayResult({ data, accent }) {
             ))}
           </div>
         </Panel>
+      )
+
+    case 'documents':
+      return (
+        <Panel title={`Loaded ${data.count} documents · ${data.total_chars.toLocaleString()} characters`}>
+          {corpusNote}
+          <div className="space-y-2">
+            {data.items.map((it, i) => (
+              <div key={i} className="rounded-lg bg-black/20 p-2">
+                <div className="flex items-center justify-between text-xs mb-1"><Src>{it.source}</Src><span className="text-slate-400">{it.chars.toLocaleString()} chars</span></div>
+                <p className="text-xs text-slate-300">{it.preview}…</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] text-slate-500">Each file is now a <span className="font-mono">Document</span> = page_content + metadata. The metadata (source) becomes the citation.</p>
+        </Panel>
+      )
+
+    case 'embedding':
+      return (
+        <div className="space-y-3">
+          {corpusNote}
+          <Panel title={`Embed — ${data.count} chunks × ${data.dim}-dim vectors · ${data.model}`}>
+            <p className="text-xs text-slate-400 mb-1">your question “{data.query}” as a vector (first 8 of {data.dim} numbers):</p>
+            <pre className="overflow-x-auto rounded-lg bg-black/40 p-3 text-xs text-slate-300">[{data.head.join(', ')}, …]</pre>
+          </Panel>
+          <Panel title="Nearest chunk by cosine similarity — close = similar meaning">
+            <div className="flex items-center justify-between text-xs mb-1"><Src>{data.nearest.source}</Src><span className={accent.text}>cosine {data.nearest.cosine}</span></div>
+            <p className="text-xs text-slate-300">{data.nearest.preview}…</p>
+          </Panel>
+        </div>
       )
 
     case 'trace':

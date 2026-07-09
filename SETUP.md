@@ -161,6 +161,15 @@ python day1\demos\demo_03_prompt.py
 :: ... through demo_13_capstone.py
 ```
 
+Day 2 live demo (interactive RAG pipeline web app — chunking sliders,
+embedding map, similarity vs MMR, citations, break-it mode):
+
+```cmd
+streamlit run day2\demos\app.py
+:: or any single page standalone, e.g.
+streamlit run day2\demos\demo_04_retrieval.py
+```
+
 ---
 
 ## 6) Troubleshooting

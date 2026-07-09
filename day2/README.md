@@ -14,6 +14,18 @@ question with inline `[1][2]` citations. Fill the `# TODO (lab):` gaps in
 ```bash
 python day2/solution/rag_pipeline.py "What is MMR and when should I use it?"
 ```
+
+**Live demo (classroom).** An interactive web app that makes every pipeline stage
+visible — colored chunk blocks with sliders, a 2-D embedding map, similarity-vs-MMR
+side by side, answers with citations, and a "break it" mode. One file per concept
+in [demos/](demos/) (see its README):
+```bash
+streamlit run day2/demos/app.py
+```
+
+**Presenting Day 2?** [PRESENTER_NOTES.md](PRESENTER_NOTES.md) has speaker notes for
+each pipeline stage — what to click, what to say, the "aha" to land, timing, and
+anticipated Q&A.
 Embeddings run **locally** by default (fastembed, no cloud) — first run downloads a
 small model once. Chroma persists to `.chroma/` (git-ignored).
 

@@ -103,15 +103,31 @@ def health():
 
 # Per-day "Run live" endpoints for the teaching tabs (see backend/labs.py).
 try:
-    from backend import labs
+    from backend import labs, day2_sessions
 except ImportError:  # when launched as `python backend/app.py`
     import labs
+    import day2_sessions
+
+from fastapi import UploadFile, File  # noqa: E402
 
 
 @app.get("/api/lab/{day}")
-def lab(day: int, demo: str = "", question: str = ""):
-    """Run one of a day's demos live and return a typed result for the UI."""
-    return labs.run(day, demo, question)
+def lab(day: int, demo: str = "", question: str = "", session: str = ""):
+    """Run one of a day's demos live and return a typed result for the UI.
+    `session` (Day 2) selects a user-uploaded corpus to run against."""
+    return labs.run(day, demo, question, session)
+
+
+@app.post("/api/day2/ingest")
+async def day2_ingest(files: list[UploadFile] = File(...)):
+    """Day 2 · upload files → run the indexing pipeline → return the per-stage
+    trace (for the live/transparent UI) and a session id the tabs then use."""
+    payload = [(f.filename or "upload.txt", await f.read()) for f in files]
+    try:
+        sid, stages, meta = day2_sessions.ingest(payload)
+        return {"session": sid, "stages": stages, "meta": meta}
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
 
 
 @app.get("/api/run")
