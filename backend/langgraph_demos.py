@@ -68,6 +68,12 @@ class LGRecorder:
     def model_response(self, text: str, who: str = "Model") -> None:
         self.steps.append({"type": "model_response", "who": who, "text": text})
 
+    def tool_call(self, name: str, args: Dict[str, Any], call_id: str = "") -> None:
+        self.steps.append({"type": "tool_call", "name": name, "args": args, "id": call_id})
+
+    def observation(self, text: str) -> None:
+        self.steps.append({"type": "observation", "text": text})
+
     def tag(self, label: str, text: str) -> None:
         self.steps.append({"type": "tag", "label": label, "text": text})
 
