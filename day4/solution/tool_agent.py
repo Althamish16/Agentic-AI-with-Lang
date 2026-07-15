@@ -1,108 +1,51 @@
 """
-Day 4 SOLUTION — a tool-calling agent (ReAct-style) in LangGraph.
+Day 4 SOLUTION — a tool-calling agent in LangGraph (single-file reference).
 
     START → agent → (tools_condition) → tools → agent → … → END
+              ▲__________________________________|
 
-The agent (an LLM with bind_tools) decides whether to answer directly or call a
-tool. ToolNode runs the chosen tool and loops back. We also demonstrate graceful
-recovery from a deliberately breakable tool.
+This file is the *compact* version of what the demos in `day4/demos/` teach
+one at a time. If you're stepping through the material for the first time,
+open the demos folder instead:
+
+    day4/demos/demo_01_tool_belt.py         # @tool = function + docstring-as-prompt
+    day4/demos/demo_02_bind_and_route.py    # bind_tools + tools_condition
+    day4/demos/demo_03_broken_tool.py       # errors as strings, never as raises
+    day4/demos/demo_04_vague_vs_specific.py # docstrings ARE prompts
+    day4/demos/demo_05_retry_backoff.py     # retry wrapper (stretch)
+
+Run:
+    python day4/solution/tool_agent.py
+    python day4/solution/tool_agent.py "What is MMR and how does it help RAG?"
 """
 
 import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "day4" / "demos"))
 
 import config  # noqa: E402 — import FIRST: loads .env and quiets langgraph/chroma noise
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.graph import END, START, MessagesState, StateGraph
-from langgraph.prebuilt import ToolNode, tools_condition
-
-from config import get_llm
-from shared.pretty import banner, node, ok, rule, warn
-from shared.tools import (
-    RESEARCH_TOOLS,
-    call_with_retry,
-    reset_flaky_tool,
-    unreliable_metric,
-)
-
-SYSTEM = (
-    "You are a research assistant. You have tools: retrieve_documents (the local "
-    "knowledge base — prefer it for course topics), web_search (mock), summarize, and "
-    "unreliable_metric. Call tools when they help, then give a concise final answer "
-    "with citations where available."
-)
+# The tool belt + graph builder live in demo_common so every Day 4 file uses
+# the same wiring. See day4/demos/demo_common.py for the annotated source.
+from demo_common import banner, build_agent, rule, run_agent  # noqa: E402
 
 
-def build_agent(handle_tool_errors: bool = True):
-    """Compile the tool-calling graph.
-
-    handle_tool_errors=True (default) makes ToolNode catch a tool exception and hand
-    the error back to the model as a ToolMessage — so a flaky tool degrades instead
-    of crashing. Set it False to see the graph crash on the breakable tool.
-    """
-    llm_with_tools = get_llm(temperature=0).bind_tools(RESEARCH_TOOLS)
-
-    def agent_node(state: MessagesState) -> dict:
-        node("agent", "decide: answer or call a tool")
-        ai = llm_with_tools.invoke(state["messages"])
-        if ai.tool_calls:
-            for tc in ai.tool_calls:
-                print(f"  → tool call: {tc['name']}({tc['args']})")
-        else:
-            print("  → final answer ready")
-        return {"messages": [ai]}
-
-    g = StateGraph(MessagesState)
-    g.add_node("agent", agent_node)
-    g.add_node("tools", ToolNode(RESEARCH_TOOLS, handle_tool_errors=handle_tool_errors))
-    g.add_edge(START, "agent")
-    # tools_condition routes to "tools" if the last AI msg has tool_calls, else END.
-    g.add_conditional_edges("agent", tools_condition)
-    g.add_edge("tools", "agent")  # after tools run, back to the agent to continue
-    return g.compile()
-
-
-def resilience_demo():
-    """Show crash vs. graceful recovery with the deliberately breakable tool."""
-    banner("Resilience demo — a deliberately breakable tool")
-
-    warn("1) Unhandled call (this is what a crash looks like):")
-    reset_flaky_tool()
-    try:
-        print("   ", unreliable_metric.invoke({"topic": "RAG"}))
-    except Exception as e:
-        print(f"    ✗ CRASH: {e}")
-        print("      → left unhandled, an exception like this kills the whole run.")
-
-    warn("\n2) Same tool wrapped in call_with_retry (graceful recovery):")
-    reset_flaky_tool()
-    result = call_with_retry(lambda: unreliable_metric.invoke({"topic": "RAG"}), retries=3)
-    ok(f"recovered → {result}")
-
-    print(
-        "\n   In the graph, ToolNode(handle_tool_errors=True) does the same thing "
-        "automatically:\n   it turns the exception into a message the agent can read "
-        "and react to."
+def main() -> None:
+    question = " ".join(sys.argv[1:]).strip() or "What is MMR and how does it relate to agent memory?"
+    banner(
+        "DAY 4 · SOLUTION — Tool-calling agent",
+        "bind_tools + ToolNode + tools_condition, all in one graph.",
+        f"Q: {question!r}",
     )
 
-
-def main():
-    question = " ".join(sys.argv[1:]).strip() or "What is MMR and how does it relate to agent memory?"
-    banner("Day 4 — Tool-calling agent")
-    print(f"Question: {question}")
-
-    app = build_agent()
-    result = app.invoke({"messages": [SystemMessage(content=SYSTEM), HumanMessage(content=question)]})
+    app = build_agent()                    # 3 tools bound; loop wired
+    answer = run_agent(app, question)      # print each turn's raw tool_call JSON
 
     rule("═")
     print("FINAL ANSWER:\n")
-    print(result["messages"][-1].content)
-
-    print()
-    resilience_demo()
+    print(answer)
 
 
 if __name__ == "__main__":

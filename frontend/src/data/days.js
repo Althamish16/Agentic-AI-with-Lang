@@ -153,37 +153,56 @@ def executor_node(s):  # Day 2
     n: 4,
     key: 'day4',
     title: 'Tools & Orchestration',
-    tag: 'bind_tools · ToolNode · retry vs crash',
+    tag: 'bind_tools · ToolNode · tool_selection · retry vs crash',
     accent: 'emerald',
-    why: 'Real agents call tools — and real tools fail. Recovery is a feature.',
-    flow: ['agent', 'tools_condition', 'ToolNode', 'agent', 'answer'],
+    why: 'Real agents call tools — and real tools fail. Recovery is a feature, not an afterthought.',
+    flow: ['agent', 'tools_condition', 'ToolNode', 'agent ↺', 'answer'],
     carriesOver: 'retrieve_documents IS the Day 2 retriever as a tool. Tool belt → shared/tools.py, reused Day 6/7.',
     explain: [
-      { h: 'Tools turn a talker into a doer', body: 'We give the LLM a **tool belt** with `bind_tools`. Now, instead of only answering, the model can emit *tool calls*. A prebuilt **`ToolNode`** executes them and feeds results back.' },
-      { h: 'Routing with tools_condition', body: 'After the agent speaks, `tools_condition` routes: if the message contains tool calls → the tools node; otherwise → END. After tools run, we loop back to the agent. That loop is the classic ReAct pattern: think → act → observe → repeat.' },
-      { h: 'Tool selection', body: 'The model picks tools from their names + docstrings. Ask about course topics → it chooses `retrieve_documents` (Day 2!). Ask about breaking news → `web_search`. Run the routing demo to watch it decide.' },
-      { h: 'Failure is normal — recover gracefully', body: 'We include a **deliberately breakable** tool. Unhandled, its exception crashes the run. Wrapped in a retry (or with `ToolNode(handle_tool_errors=True)`), the error becomes a message the agent can react to. Resilience is a design choice.' },
+      { h: 'Tools turn a talker into a doer', body: 'We give the LLM a **tool belt** with `bind_tools`. The model no longer only replies with prose — it can reply with a structured **tool call** (name + typed args). A prebuilt **`ToolNode`** actually runs the tool and hands the result back as a `ToolMessage`.' },
+      { h: 'Routing with tools_condition (the whole loop)', body: '`tools_condition` inspects the last AIMessage — has `.tool_calls`? → go to the tools node; else → END. After tools run, we add an edge back to the agent so it can read the result and either call another tool or write the final answer. That single conditional edge is what makes this a **loop** instead of a chain — the classic ReAct pattern.' },
+      { h: 'Tool descriptions ARE prompts', body: 'The model picks tools from their names + docstrings alone. Rule of thumb: **specific, non-overlapping, verb-first**. Vague docstrings ("Do a computation.") get skipped or mis-picked; specific ones ("Evaluate a numeric expression like 12.5% of 240…") get called with clean args. The **Vague vs Specific** tab shows this happening with two calculators that share the same body.' },
+      { h: 'Failure is normal — return errors as STRINGS', body: 'Tools are code that runs outside the LLM (network, disk, APIs). If we let an exception escape, `ToolNode` surfaces it and — without `handle_tool_errors=True` — the graph crashes. The pattern is to `try/except` inside the tool and return a readable string like `"SEARCH_FAILED: …"`. The model reads that string on the next turn and can *pivot*. Never raise into the loop.' },
+      { h: 'Retries make idempotent tools reliable', body: 'A transient failure isn\'t the same as a permanent one. Wrap an **idempotent** call (GET, read, search) in a retry with **exponential backoff** so a flaky provider self-heals. Never wrap a side-effectful write unless you have a dedup / idempotency key.' },
     ],
     snippets: [
-      { title: 'Bind tools + ToolNode', code: `llm_with_tools = llm.bind_tools(TOOLS)
+      { title: 'Bind tools + ToolNode + tools_condition', code: `llm_with_tools = llm.bind_tools(TOOLS)
+g.add_node("agent", agent_node)          # calls llm_with_tools
 g.add_node("tools", ToolNode(TOOLS, handle_tool_errors=True))
-g.add_conditional_edges("agent", tools_condition)  # -> tools or END
-g.add_edge("tools", "agent")  # loop back after tools run` },
-      { title: 'A breakable tool', code: `@tool
-def unreliable_metric(topic: str) -> str:
-    """Flaky upstream — callers should retry."""
-    if odd_call(): raise RuntimeError("timed out (simulated)")
-    return f"Popularity for {topic}: 87/100"` },
-      { title: 'Graceful recovery', code: `def call_with_retry(fn, *a, retries=3):
+g.add_edge(START, "agent")
+g.add_conditional_edges("agent", tools_condition)   # -> "tools" or END
+g.add_edge("tools", "agent")             # loop back after tools run` },
+      { title: 'Docstring IS the prompt · specific > vague', code: `@tool
+def calc_specific(expression: str) -> str:
+    """Evaluate a numeric arithmetic expression written in Python syntax
+    (operators: + - * / % ** and parentheses; digits and decimals only).
+    Use this for ANY question that reduces to a number (e.g. "12.5% of 240").
+    Pass ONLY the expression, not the word problem."""
+    return safe_eval(expression)` },
+      { title: 'Errors as strings, never as raises', code: `@tool
+def web_search(query: str) -> str:
+    """Search the public web for CURRENT facts."""
+    try:
+        return call_provider(query)
+    except Exception as e:
+        return f"SEARCH_FAILED: {e}"   # agent reads this and pivots` },
+      { title: 'Retry with exponential backoff', code: `def retry(fn, *, retries=3, delay=0.2, factor=2.0):
     for i in range(retries):
-        try: return fn(*a)
-        except Exception as e: last = e
-    raise RuntimeError(f"failed after {retries}: {last}")` },
+        try: return fn()
+        except Exception as e:
+            time.sleep(delay); delay *= factor; last = e
+    return f"RETRY_EXHAUSTED: {last}"` },
+    ],
+    sections: [
+      { id: 'tools', label: 'Tool-agent demos', desc: 'Six live demos — belt → run → selection → docstring-as-prompt → resilience → backoff.' },
     ],
     demos: [
-      { id: 'agent', label: 'Run the tool agent', desc: 'Watch which tools the agent calls, then its answer.', needsQuestion: true },
-      { id: 'routing', label: 'Tool selection', desc: 'Three different questions → see which tool it picks for each.', needsQuestion: false },
-      { id: 'resilience', label: 'Crash vs retry', desc: 'The breakable tool: unhandled crash vs graceful retry. No LLM call.', needsQuestion: false },
+      { id: 'belt',              section: 'tools', slide: 1, tab: 'T1 · Tool belt',            label: 'Demo 1 · The tool belt (no LLM)',              desc: '`@tool` = a plain function whose docstring becomes the model\'s prompt. Inspect each tool\'s name, description, and typed args — the exact schema the model sees when the belt is bound. No LLM call.', needsQuestion: false },
+      { id: 'agent',             section: 'tools', slide: 2, tab: 'T2 · Run agent',            label: 'Demo 2 · bind_tools + tools_condition loop',   desc: 'Ask a course question and watch every turn: the model\'s tool call (with raw args), the tool\'s result, and the next turn. Loops until the model produces a final answer with citations.', needsQuestion: true },
+      { id: 'routing',           section: 'tools', slide: 3, tab: 'T3 · Tool selection',       label: 'Demo 3 · Tool selection per question',         desc: 'Three questions worded to steer different tools. Each row shows the expected pick, the actual pick + args, and WHY the docstring pulled the model that way.', needsQuestion: false },
+      { id: 'vague_vs_specific', section: 'tools', slide: 4, tab: 'T4 · Vague vs Specific',    label: 'Demo 4 · Tool descriptions ARE prompts',       desc: 'Two calculators with identical bodies but different docstrings. Same question, same graph — watch tool selection FLIP between "skipped" and "called with a clean expression".', needsQuestion: false },
+      { id: 'resilience',        section: 'tools', slide: 5, tab: 'T5 · Crash vs recover',     label: 'Demo 5 · Crash → string-return → retry',       desc: 'Three-stage story: unhandled call crashes; the same tool wrapped in try/except returns a readable "FAILED: …" string; a bare retry loop recovers on attempt #2. No LLM call.', needsQuestion: false },
+      { id: 'backoff',           section: 'tools', slide: 6, tab: 'T6 · Retry + backoff',      label: 'Demo 6 · Retry with exponential backoff',      desc: 'Timeline of a flaky call: two failures, growing delays, then success on attempt #3. Second panel shows a permanently-broken call becoming a "RETRY_EXHAUSTED: …" string instead of a raise. No LLM call.', needsQuestion: false },
     ],
   },
   {

@@ -17,7 +17,10 @@ DEFAULT_QUESTIONS = {
     1: "How does retrieval-augmented generation improve LLM accuracy?",
     2: "What is MMR and when should I use it in retrieval?",
     3: "How do vector databases power RAG?",
-    4: "What is MMR and how does it relate to agent memory?",
+    # Day 4 default is intentionally a MULTI-TOOL prompt so the agent-loop
+    # demo (d4_agent) visibly picks TWO different tools across turns — proving
+    # tool diversity, not just "retrieve_documents twice then answer".
+    4: "Look up what our local course docs say about long-term agent memory, then search the web for a recent news headline about vector databases in 2025. Give me one combined sentence with citations.",
     5: "",
     6: "How do agents use memory and tools?",
     7: "Should I use similarity or MMR retrieval for a RAG system?",
@@ -389,53 +392,202 @@ def d3_one_step(q):
 # ═══════════════════════════════════════════════════════════════════════════
 # DAY 4 — tools
 # ═══════════════════════════════════════════════════════════════════════════
+def d4_belt(q):
+    """Inspect the tool belt AND invoke each tool with a canned sample.
+
+    Two teaching layers in one demo (no LLM anywhere):
+      1. What the model sees when we call bind_tools() — name, docstring,
+         and typed args (the JSON schema pulled from the tool's Pydantic model).
+      2. What each tool ACTUALLY returns for a canned input — proving these
+         are ordinary Python functions your app runs, not model output.
+    """
+    from shared.tools import SAFE_TOOLS
+
+    # Canned sample inputs chosen so every tool returns something visibly
+    # different (course-topic query, generic web query, prose to condense).
+    SAMPLES = {
+        "retrieve_documents": {"query": "What is MMR retrieval?"},
+        "search_docs":         {"query": "What is MMR retrieval?"},  # standalone-demo alias
+        "web_search":          {"query": "vector database benchmarks"},
+        "summarize": {"text": (
+            "MMR re-ranks retrieved chunks to balance relevance with diversity, "
+            "avoiding near-duplicate results common in plain similarity search."
+        )},
+    }
+
+    tools = []
+    for t in SAFE_TOOLS:
+        schema = t.args_schema.schema() if getattr(t, "args_schema", None) else {}
+        props = schema.get("properties", {}) or {}
+        sample_args = SAMPLES.get(t.name, {})
+        # Actually invoke the tool with the canned sample so learners see the
+        # real output shape (retrieval chunks vs mock web bullets vs summary).
+        try:
+            sample_out = t.invoke(sample_args) if sample_args else "(no sample configured)"
+        except Exception as e:  # noqa: BLE001
+            sample_out = f"[error running sample: {e}]"
+        sample_out = str(sample_out)
+        if len(sample_out) > 480:
+            sample_out = sample_out[:480] + " …"
+        tools.append({
+            "name": t.name,
+            "description": (t.description or "").strip(),
+            "args": [{"name": k, "type": v.get("type", "?")} for k, v in props.items()],
+            "sample_input": sample_args,
+            "sample_output": sample_out,
+        })
+    return {"kind": "tool_belt", "tools": tools}
+
+
 def d4_agent(q):
+    """Run the tool-calling agent and return a rich per-turn transcript.
+
+    Each turn either (a) the model calls one or more tools, in which case we
+    show the raw tool_call JSON + the tool result, or (b) the model produces
+    a final answer, in which case we stop. This mirrors the loop taught in
+    `day4/demos/demo_02_bind_and_route.py`.
+
+    We hardcode a MULTI-TOOL question so learners actually see the loop pick
+    different tools across turns (not just retrieve_documents twice). If the
+    user typed their own question we honour it; otherwise the demo shows off
+    tool-diversity by design.
+    """
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
     from config import get_llm
     from shared.tools import SAFE_TOOLS
 
+    # Distinct, purpose-built question: forces the model to (1) retrieve from
+    # local docs about agent memory, (2) run a web_search for a live fact
+    # about vector-DB news, (3) optionally summarize before answering. Three
+    # different tools on three different turns — the exact opposite of the
+    # "retrieve twice then answer" pattern the MMR default used to produce.
+    question = (q or "").strip() or (
+        "Look up in our local course docs what long-term agent memory is, "
+        "then search the web for the latest news about vector databases in "
+        "2025, and give me a 2-sentence combined answer with citations."
+    )
+
     tools_by_name = {t.name: t for t in SAFE_TOOLS}
     llm = get_llm(0).bind_tools(SAFE_TOOLS)
     msgs = [
-        SystemMessage(content="Use retrieve_documents for course topics, then answer concisely with citations."),
-        HumanMessage(content=q),
+        SystemMessage(content=(
+            "You are a research assistant. Use retrieve_documents for course topics "
+            "(RAG, LangGraph, vector DBs, prompting, memory), web_search only for "
+            "facts NOT in the local docs, and summarize to condense text. Answer "
+            "concisely with citations when available."
+        )),
+        HumanMessage(content=question),
     ]
-    tool_calls = []
-    for _ in range(4):
+
+    turns: list[dict] = []
+    tool_calls: list[dict] = []          # kept for the "kind: tools" panel
+    final = ""
+
+    MAX_TURNS = 4
+    for turn_no in range(1, MAX_TURNS + 1):
         ai = llm.invoke(msgs)
         msgs.append(ai)
+
+        turn = {
+            "turn": turn_no,
+            "thought": (ai.content or "").strip(),
+            "calls": [],
+        }
+
         if not ai.tool_calls:
+            # Final answer — no more tool calls to run.
+            final = ai.content or ""
+            turn["is_final"] = True
+            turns.append(turn)
             break
+
+        # Otherwise run every requested tool and record what came back.
         for tc in ai.tool_calls:
-            tool_calls.append({"name": tc["name"], "args": tc["args"]})
-            out = tools_by_name[tc["name"]].invoke(tc["args"])
+            record = {"name": tc["name"], "args": tc["args"]}
+            tool_calls.append(record)
+            try:
+                out = tools_by_name[tc["name"]].invoke(tc["args"])
+            except Exception as e:  # ToolNode's belt-and-braces behaviour
+                out = f"TOOL_ERROR: {e}"
+            preview = str(out)
+            if len(preview) > 400:
+                preview = preview[:400] + " …"
+            turn["calls"].append({**record, "result": preview})
             msgs.append(ToolMessage(content=str(out), tool_call_id=tc["id"]))
-    return {"kind": "tools", "tool_calls": tool_calls, "final": msgs[-1].content}
+        turns.append(turn)
+    else:
+        # Hit MAX_TURNS without a final answer — surface it clearly.
+        final = msgs[-1].content if hasattr(msgs[-1], "content") else ""
+
+    return {
+        "kind": "tools",
+        "question": question,
+        "turns": turns,
+        "tool_calls": tool_calls,   # back-compat: existing renderer still works
+        "final": final,
+    }
 
 
 def d4_resilience(q):
+    """Three-stage story: crash → return-as-string → retry-recovers.
+
+    Stage 1: call the flaky tool with NO safety net → catch the crash so the
+             UI can show what "unhandled" actually looks like.
+    Stage 2: same call wrapped so the exception becomes a readable string
+             (this is the pattern real tools use — see web_search).
+    Stage 3: bare retry loop — the agent tries again and (because the fake
+             service fails every OTHER call) recovers on attempt 2.
+    """
     from shared.tools import reset_flaky_tool, unreliable_metric
 
+    # Stage 1 · unhandled crash ------------------------------------------------
     reset_flaky_tool()
-    crash = None
+    stage1 = {"label": "no try/except → the exception escapes"}
     try:
-        unreliable_metric.invoke({"topic": "RAG"})
+        stage1["result"] = unreliable_metric.invoke({"topic": "RAG"})
+        stage1["ok"] = True
     except Exception as e:
-        crash = str(e)
+        stage1["error"] = f"{type(e).__name__}: {e}"
+        stage1["ok"] = False
+
+    # Stage 2 · error returned as string --------------------------------------
+    reset_flaky_tool()
+    stage2 = {"label": "try/except returns 'SEARCH_FAILED: …' — agent can react"}
+    try:
+        stage2["result"] = unreliable_metric.invoke({"topic": "RAG"})
+        stage2["ok"] = True
+    except Exception as e:
+        stage2["result"] = f"TOOL_FAILED: {e}"
+        stage2["ok"] = False
+
+    # Stage 3 · retry loop recovers -------------------------------------------
     reset_flaky_tool()
     retry = []
     for i in range(1, 4):
         try:
             val = unreliable_metric.invoke({"topic": "RAG"})
-            retry.append(f"attempt {i}: recovered → {val}")
+            retry.append({"attempt": i, "outcome": "recovered", "detail": val})
             break
         except Exception as e:
-            retry.append(f"attempt {i}: failed → {e}")
-    return {"kind": "resilience", "crash": crash, "retry": retry}
+            retry.append({"attempt": i, "outcome": "failed", "detail": str(e)})
+
+    return {
+        "kind": "resilience",
+        "stage1": stage1,
+        "stage2": stage2,
+        "retry": retry,
+        # legacy fields the old renderer still reads:
+        "crash": stage1.get("error"),
+    }
 
 
 def d4_routing(q):
+    """Three questions, three expected tool picks — show how docstrings steer selection.
+
+    For each case we also record the args the model produced (so the room can
+    see how the model rewrites the user's phrasing into a clean tool argument).
+    """
     from config import get_llm
     from shared.tools import SAFE_TOOLS
 
@@ -444,18 +596,215 @@ def d4_routing(q):
     llm = get_llm(0).bind_tools(SAFE_TOOLS)
     system = SystemMessage(content=(
         "You have tools: retrieve_documents (local course knowledge base), web_search "
-        "(current events), summarize. Call the most appropriate tool for the request."
+        "(current events / live facts), summarize (condense text you already have). "
+        "Call the most appropriate tool for the request, or answer directly if none apply."
     ))
-    questions = [
-        "What is MMR in the course's retrieval material?",
-        "What is the very latest news on AI regulation this week?",
-        "Summarize this: RAG loads, chunks, embeds, stores, retrieves, and answers with citations.",
+    cases_in = [
+        {
+            "question": "What is MMR in the course's retrieval material?",
+            "expected": "retrieve_documents",
+            "reason": "The phrase 'course's retrieval material' matches the local knowledge-base tool's docstring.",
+        },
+        {
+            "question": "What is the very latest news on AI regulation this week?",
+            "expected": "web_search",
+            "reason": "'Latest news / this week' is time-sensitive → the docstring for web_search says use it for current facts.",
+        },
+        {
+            "question": "Summarize this: RAG loads, chunks, embeds, stores, retrieves, and answers with citations.",
+            "expected": "summarize",
+            "reason": "The user already provided the text and asked to shorten it — summarize is the only tool that operates on given text.",
+        },
     ]
     cases = []
-    for question in questions:
-        ai = llm.invoke([system, HumanMessage(content=question)])
-        cases.append({"question": question, "tools": [tc["name"] for tc in ai.tool_calls] or ["(answered directly)"]})
+    for c in cases_in:
+        ai = llm.invoke([system, HumanMessage(content=c["question"])])
+        picks = [{"name": tc["name"], "args": tc["args"]} for tc in ai.tool_calls] or []
+        picked_names = [p["name"] for p in picks] or ["(answered directly)"]
+        cases.append({
+            **c,
+            "tools": picked_names,             # back-compat for the old renderer
+            "picks": picks,                    # new: name + args
+            "match": bool(picks) and picks[0]["name"] == c["expected"],
+        })
     return {"kind": "routing", "cases": cases}
+
+
+def d4_vague_vs_specific(q):
+    """Prompt-engineered tool descriptions: SAME implementation, opposite picks.
+
+    Trick: on the vague side we deliberately give the calc tool a MISLEADING
+    NAME (`notes`) and a totally vague docstring, so a smart model has no
+    signal that this tool can do arithmetic. On the specific side the same
+    function is named `calculator` with a rich, worked-example docstring.
+
+    The system prompt intentionally does NOT hint at math, so the model has to
+    infer tool purpose entirely from name + docstring — which is exactly the
+    scenario a fresher will face in the real world.
+    """
+    from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+    from langchain_core.tools import tool as tool_dec
+    from pydantic import BaseModel, Field
+
+    from config import get_llm
+    from shared.tools import SAFE_TOOLS  # search_docs, web_search, summarize
+
+    def _safe_eval(expression: str) -> str:
+        allowed = set("0123456789+-*/(). %")
+        if not expression or any(ch not in allowed for ch in expression):
+            return f"CALC_REJECTED: {expression!r}"
+        try:
+            return str(eval(expression, {"__builtins__": {}}, {}))  # noqa: S307
+        except Exception as e:  # noqa: BLE001
+            return f"CALC_FAILED: {e}"
+
+    # ── VAGUE side: misleading name + vague description ──────────────────
+    # `notes` sounds like it stores/reads notes, not arithmetic. The docstring
+    # is a single generic sentence with no examples, no allowed operators, no
+    # boundary rules. A smart model will USUALLY skip this tool and answer the
+    # math directly from its own knowledge — a real teaching-visible outcome.
+    class VagueArgs(BaseModel):
+        input: str = Field(description="The input value.")
+
+    @tool_dec(args_schema=VagueArgs)
+    def notes(input: str) -> str:  # noqa: A002 — matches the vague schema
+        """Utility helper."""
+        return _safe_eval(input)
+
+    # ── SPECIFIC side: aligned name + rich, example-driven description ───
+    class CalcArgs(BaseModel):
+        expression: str = Field(
+            description="A Python arithmetic expression, e.g. '(3+4)*2' or '240*0.125'."
+        )
+
+    @tool_dec(args_schema=CalcArgs)
+    def calculator(expression: str) -> str:
+        """Evaluate a numeric arithmetic expression written in Python syntax.
+
+        Allowed: digits, decimals, and the operators + - * / % ** and parentheses.
+        Use this for ANY user question that reduces to a number, e.g.
+            "12.5% of 240"      → 240*0.125
+            "area of r=2 circle" → 3.14159*2**2
+            "1024 / 8"           → 1024/8
+        Pass ONLY the arithmetic expression string — never the word problem.
+        Do NOT use for text summarisation or document lookup.
+        """
+        return _safe_eval(expression)
+
+    question = "What is 12.5% of 240?"
+    # NOTE: system prompt intentionally does NOT say "use the calculator" — the
+    # model has to infer tool purpose from the docstring alone.
+    system = SystemMessage(content=(
+        "You are a helpful assistant. You have several tools available; look at "
+        "each tool's name and description and use whichever fits the user request. "
+        "If no tool fits, answer directly."
+    ))
+
+    def _run(extra_tool, label: str):
+        tools = list(SAFE_TOOLS) + [extra_tool]
+        by_name = {t.name: t for t in tools}
+        llm = get_llm(0).bind_tools(tools)
+        msgs = [system, HumanMessage(content=question)]
+        picks: list[dict] = []
+        for _ in range(3):
+            ai = llm.invoke(msgs)
+            msgs.append(ai)
+            if not ai.tool_calls:
+                break
+            for tc in ai.tool_calls:
+                picks.append({"name": tc["name"], "args": tc["args"]})
+                try:
+                    out = by_name[tc["name"]].invoke(tc["args"])
+                except Exception as e:  # noqa: BLE001
+                    out = f"TOOL_ERROR: {e}"
+                msgs.append(ToolMessage(content=str(out), tool_call_id=tc["id"]))
+        final = (msgs[-1].content if hasattr(msgs[-1], "content") else "").strip()
+        # Classify what happened for the UI's "outcome" pill.
+        calc_names = {"notes", "calculator"}
+        used_calc = any(p["name"] in calc_names for p in picks)
+        used_other = any(p["name"] not in calc_names for p in picks)
+        if used_calc:
+            outcome = "calc-used"
+        elif used_other:
+            outcome = "wrong-tool"
+        else:
+            outcome = "no-tool"
+        return {"label": label, "picks": picks, "final": final, "outcome": outcome}
+
+    return {
+        "kind": "vague_vs_specific",
+        "question": question,
+        "vague": {
+            "tool_name": notes.name,
+            "docstring": (notes.description or "").strip(),
+            **_run(notes, "misleading name + vague description"),
+        },
+        "specific": {
+            "tool_name": calculator.name,
+            "docstring": (calculator.description or "").strip(),
+            **_run(calculator, "aligned name + rich description with examples"),
+        },
+    }
+
+
+def d4_backoff(q):
+    """Retry-with-backoff timeline — no LLM. Mirrors demo_05_retry_backoff.py.
+
+    Two callables:
+      • flaky_recovers  — fails on attempts 1 and 2, succeeds on 3.
+      • always_broken   — never succeeds; wrapper returns RETRY_EXHAUSTED string.
+    Each attempt records: attempt#, delay (seconds actually slept),
+    cumulative time, outcome (failed/recovered/exhausted), detail.
+    """
+    def _retry(fn, *, retries=5, initial_delay=0.1, factor=2.0):
+        """Exponential-backoff wrapper. We don't ACTUALLY sleep (this is a demo
+        that has to feel snappy in the browser) — we compute what the delay
+        WOULD have been so the timeline chart can render honest widths."""
+        attempts = []
+        delay = 0.0                # first attempt has no wait in front of it
+        cum = 0.0
+        next_delay = initial_delay
+        last: Exception | None = None
+        for i in range(1, retries + 1):
+            try:
+                val = fn()
+                cum += delay
+                attempts.append({
+                    "attempt": i, "delay": round(delay, 3), "cum": round(cum, 3),
+                    "outcome": "recovered", "detail": val,
+                })
+                return {"attempts": attempts, "result": val, "exhausted": False, "total": round(cum, 3)}
+            except Exception as e:  # noqa: BLE001
+                last = e
+                cum += delay
+                attempts.append({
+                    "attempt": i, "delay": round(delay, 3), "cum": round(cum, 3),
+                    "outcome": "failed", "detail": str(e),
+                })
+                delay = next_delay
+                next_delay *= factor
+        # Exhausted — record a synthetic terminal row so the UI can show the give-up marker.
+        attempts.append({
+            "attempt": None, "delay": None, "cum": round(cum, 3),
+            "outcome": "exhausted", "detail": f"RETRY_EXHAUSTED: {last}",
+        })
+        return {"attempts": attempts, "result": f"RETRY_EXHAUSTED: {last}", "exhausted": True, "total": round(cum, 3)}
+
+    calls_a = {"n": 0}
+    def flaky_recovers():
+        calls_a["n"] += 1
+        if calls_a["n"] < 3:
+            raise RuntimeError(f"transient error on call #{calls_a['n']}")
+        return "OK: metric=87"
+
+    def always_broken():
+        raise RuntimeError("upstream is down for maintenance")
+
+    return {
+        "kind": "backoff",
+        "recovers": _retry(flaky_recovers, retries=5, initial_delay=0.1, factor=2.0),
+        "exhausts": _retry(always_broken, retries=4, initial_delay=0.1, factor=2.0),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -744,7 +1093,14 @@ REGISTRY = {
         "plan_only": d3_plan_only,
         "one_step": d3_one_step,
     },
-    4: {"agent": d4_agent, "resilience": d4_resilience, "routing": d4_routing},
+    4: {
+        "belt": d4_belt,
+        "agent": d4_agent,
+        "routing": d4_routing,
+        "vague_vs_specific": d4_vague_vs_specific,
+        "resilience": d4_resilience,
+        "backoff": d4_backoff,
+    },
     5: {"short": d5_short, "long": d5_long, "compaction": d5_compaction},
     6: {"multi": d6_multi, "resume": d6_resume},
     7: {"full": d7_full, "reflection": d7_reflection, "hitl": d7_hitl},

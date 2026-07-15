@@ -18,7 +18,18 @@ built-in `handle_tool_errors`).
 [shared/tools.py](../shared/tools.py): `web_search` (mock), `retrieve_documents`
 (Day 2 RAG!), `summarize`, and `unreliable_metric`.
 
-**Run it**
+**Live demos (one concept per file — great for walkthroughs).** See
+[demos/README.md](demos/README.md) for the whole story. TL;DR:
+
+```bash
+python day4/demos/demo_01_tool_belt.py         # @tool = function + docstring-as-prompt
+python day4/demos/demo_02_bind_and_route.py    # bind_tools + tools_condition
+python day4/demos/demo_03_broken_tool.py       # errors as strings → graceful recovery
+python day4/demos/demo_04_vague_vs_specific.py # docstrings ARE prompts (calculator)
+python day4/demos/demo_05_retry_backoff.py     # stretch: retry wrapper
+```
+
+**Run the compact solution**
 ```bash
 python day4/solution/tool_agent.py "What is MMR and how does it relate to agent memory?"
 ```

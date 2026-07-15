@@ -218,41 +218,430 @@ export default function DayResult({ data, accent }) {
         </div>
       )
 
-    case 'tools':
-      return (
-        <div className="space-y-3">
-          <Panel title="Tool calls the agent chose">
-            <div className="flex flex-wrap gap-2">
-              {data.tool_calls.length ? data.tool_calls.map((t, i) => (
-                <span key={i} className={`rounded-md ${accent.bg} px-2 py-1 text-xs ${accent.text} font-mono`}>{t.name}({Object.values(t.args)[0]?.toString().slice(0, 28)}…)</span>
-              )) : <span className="text-sm text-slate-400">answered directly (no tools)</span>}
+    case 'tools': {
+      // ── T2 · Agent loop — rendered as a NUMBERED PROCESSING PIPELINE ──
+      // Every hop the agent takes becomes one numbered step so learners
+      // watch the loop unfold end-to-end: ask → decide → tool runs →
+      // result returns → decide again → final answer.
+      const turns = Array.isArray(data.turns) ? data.turns : null
+      const steps = []
+      let n = 1
+
+      steps.push({
+        n: n++, kind: 'input', title: 'You ask',
+        hint: 'The whole loop is driven by ONE HumanMessage — nothing else.',
+        body: <p className="whitespace-pre-wrap text-slate-100">{data.question || '(no question)'}</p>,
+      })
+
+      if (turns) {
+        turns.forEach((t) => {
+          // Each tool call inside a turn = decision step + output step.
+          if (t.calls && t.calls.length > 0) {
+            t.calls.forEach((c) => {
+              steps.push({
+                n: n++, kind: 'decision',
+                title: <>Turn {t.turn} · model decides to call <span className={`font-mono ${accent.text}`}>{c.name}(…)</span></>,
+                hint: 'The LLM emits a structured tool_call — the graph routes to ToolNode.',
+                body: (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">arguments the model chose</p>
+                    <pre className="overflow-x-auto rounded bg-black/50 p-2 text-[11px] leading-relaxed text-amber-100">{JSON.stringify(c.args, null, 2)}</pre>
+                  </div>
+                ),
+              })
+              if (c.result != null) {
+                steps.push({
+                  n: n++, kind: 'output',
+                  title: <>ToolNode runs <span className={`font-mono ${accent.text}`}>{c.name}</span> · result flows back as a ToolMessage</>,
+                  hint: 'The graph re-enters the agent node — the model now sees this string in its message history.',
+                  body: (
+                    <pre className="overflow-x-auto rounded bg-black/50 p-2 text-[11px] leading-relaxed text-violet-100 whitespace-pre-wrap max-h-56">{c.result}</pre>
+                  ),
+                })
+              }
+            })
+          }
+          if (t.is_final) {
+            steps.push({
+              n: n++, kind: 'success',
+              title: <>Turn {t.turn} · model emits final answer (no more tool_calls)</>,
+              hint: 'tools_condition sees a plain AIMessage → routes to END. Loop stops.',
+              body: <div className="text-slate-100"><ReportView text={t.thought} /></div>,
+            })
+          }
+        })
+        const totalCalls = turns.reduce((n, t) => n + (t.calls?.length || 0), 0)
+        steps.push({
+          n: n++, kind: 'note', title: 'Loop summary',
+          hint: 'The graph itself is a while-loop: agent → (tool? → agent : end).',
+          body: (
+            <div className="flex flex-wrap gap-3 text-[11px] text-slate-300">
+              <span>⛓ turns: <span className="font-mono text-slate-100">{turns.length}</span></span>
+              <span>·</span>
+              <span>🔧 tool calls: <span className="font-mono text-slate-100">{totalCalls}</span></span>
+              <span>·</span>
+              <span>stop reason: <span className={accent.text}>agent produced a message with no tool_calls → tools_condition routed to END</span></span>
             </div>
-          </Panel>
-          <Panel title="Final answer"><ReportView text={data.final} /></Panel>
+          ),
+        })
+      } else {
+        // Fallback for the older shape (no per-turn trace)
+        const picks = data.tool_calls || []
+        if (picks.length) {
+          picks.forEach((c) => {
+            steps.push({
+              n: n++, kind: 'decision',
+              title: <>Model decides to call <span className={`font-mono ${accent.text}`}>{c.name}(…)</span></>,
+              body: <pre className="overflow-x-auto rounded bg-black/50 p-2 text-[11px] text-amber-100">{JSON.stringify(c.args, null, 2)}</pre>,
+            })
+          })
+        } else {
+          steps.push({
+            n: n++, kind: 'decision', title: 'Model answers directly (no tool needed)',
+            hint: 'The LLM decided the question is answerable from its own knowledge.',
+          })
+        }
+        if (data.final) {
+          steps.push({
+            n: n++, kind: 'success', title: 'Final answer',
+            body: <div className="text-slate-100"><ReportView text={data.final} /></div>,
+          })
+        }
+      }
+
+      return <StepFlow steps={steps} accent={accent} />
+    }
+
+    case 'tool_belt': {
+      // ── T1 · INSPECTOR STRIP + TOOL CARDS ────────────────────────────
+      // Distinct visual identity: a horizontal arrow strip across the top
+      // showing the plain-fn -> @tool -> bind_tools -> schema pipeline,
+      // followed by a GRID of tool inspector cards. Not a numbered step
+      // flow (T2 uses that) — this is an inspection view, no time axis.
+      const arrow = (
+        <svg className="shrink-0 h-4 w-4 text-slate-600" viewBox="0 0 20 20" fill="currentColor"><path d="M7.293 4.293a1 1 0 011.414 0l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414-1.414L11.586 10 7.293 5.707a1 1 0 010-1.414z"/></svg>
+      )
+      const stages = [
+        { tag: 'plain fn', code: 'def retrieve_documents(q):\n  return format(get_retriever().invoke(q))', color: 'text-slate-300' },
+        { tag: '@tool', code: '@tool\ndef retrieve_documents(q: str) -> str:\n  """Docstring becomes the prompt."""', color: 'text-fuchsia-300' },
+        { tag: 'bind_tools', code: 'llm.bind_tools([retrieve, web_search, summarize])', color: 'text-amber-300' },
+        { tag: 'schema (what model sees)', code: '{\n  "name": "retrieve_documents",\n  "parameters": { "query": "string" },\n  "description": "..."\n}', color: 'text-emerald-300' },
+      ]
+      return (
+        <div className="space-y-4">
+          {/* Transform strip: shows the code MUTATION that happens when you add @tool + bind_tools */}
+          <div className="rounded-xl bg-slate-950/50 ring-1 ring-white/10 p-3">
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Pipeline · how a plain Python function becomes a tool the LLM can see</p>
+            <div className="flex items-stretch gap-2 overflow-x-auto">
+              {stages.map((s, i) => (
+                <div key={s.tag} className="flex items-stretch gap-2">
+                  <div className="shrink-0 w-64 rounded-lg bg-black/40 ring-1 ring-white/5 p-2">
+                    <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${s.color}`}>{s.tag}</p>
+                    <pre className="text-[10px] font-mono text-slate-300 whitespace-pre overflow-x-auto leading-snug">{s.code}</pre>
+                  </div>
+                  {i < stages.length - 1 && <div className="flex items-center">{arrow}</div>}
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-slate-500">The model NEVER sees your Python source — it only sees the last box (the JSON schema).</p>
+          </div>
+
+          {/* Grid of tool inspector cards */}
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">The {data.tools.length} tools currently bound · name + schema + a live sample invocation</p>
+            <div className="grid gap-2 md:grid-cols-3">
+              {data.tools.map((t, i) => (
+                <div key={i} className="rounded-xl bg-slate-900/40 ring-1 ring-white/10 overflow-hidden">
+                  <div className={`px-3 py-1.5 ${accent.bg} border-b border-white/10 flex items-center gap-2`}>
+                    <span className="text-[10px] uppercase tracking-wider text-slate-500">tool</span>
+                    <span className={`font-mono font-bold text-sm ${accent.text}`}>{t.name}</span>
+                  </div>
+                  <div className="p-3 space-y-2">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">args (typed)</p>
+                      <div className="space-y-0.5">
+                        {t.args.map((a, j) => (
+                          <p key={j} className="text-[11px] font-mono">
+                            <span className="text-slate-200">{a.name}</span>
+                            <span className="text-slate-500">: </span>
+                            <span className="text-amber-300">{a.type}</span>
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">description (the prompt the model reads)</p>
+                      <p className="text-[11px] text-slate-300 whitespace-pre-wrap max-h-24 overflow-y-auto border-l-2 border-slate-700 pl-2">{t.description}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">sample invocation (no LLM)</p>
+                      <p className="text-[10px] font-mono text-slate-400">.invoke({JSON.stringify(t.sample_input)})</p>
+                      <pre className="mt-1 rounded bg-black/60 p-1.5 text-[10px] font-mono text-emerald-200 whitespace-pre-wrap max-h-20 overflow-y-auto">{t.sample_output}</pre>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )
+    }
 
     case 'routing':
       return (
         <Panel title="Tool selection — the model picks per question">
+          <p className="text-[11px] text-slate-500 mb-3">
+            Each row shows the expected pick (from the docstrings), what the model actually did, and WHY. A green dot means the model matched the intent.
+          </p>
           <div className="space-y-2">
-            {data.cases.map((c, i) => (
-              <div key={i} className="rounded-lg bg-black/20 p-2">
-                <p className="text-sm text-slate-200">{c.question}</p>
-                <div className="mt-1 flex flex-wrap gap-1">{c.tools.map((t, j) => <span key={j} className={`rounded-md ${accent.bg} px-1.5 py-0.5 text-[11px] font-mono ${accent.text}`}>{t}</span>)}</div>
-              </div>
-            ))}
+            {data.cases.map((c, i) => {
+              const match = c.match !== undefined ? c.match : (c.tools && c.tools[0] === c.expected)
+              return (
+                <div key={i} className="rounded-lg bg-black/20 p-3 ring-1 ring-white/5">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-sm text-slate-200 flex-1">{c.question}</p>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${match ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/40' : 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/40'}`}>
+                      {match ? '● match' : '● mismatch'}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid gap-1.5 text-[11px]">
+                    {c.expected && (
+                      <div className="flex items-center gap-2">
+                        <span className="w-20 text-slate-500">expected</span>
+                        <span className={`rounded-md ${accent.bg} px-1.5 py-0.5 font-mono ${accent.text}`}>{c.expected}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <span className="w-20 text-slate-500">actual</span>
+                      <div className="flex flex-wrap gap-1">
+                        {(c.picks && c.picks.length ? c.picks.map((p, j) => (
+                          <span key={j} className={`rounded-md bg-black/40 px-1.5 py-0.5 font-mono text-slate-200 ring-1 ring-white/10`}>
+                            {p.name}({Object.values(p.args)[0]?.toString().slice(0, 40)})
+                          </span>
+                        )) : (c.tools || []).map((t, j) => (
+                          <span key={j} className={`rounded-md ${accent.bg} px-1.5 py-0.5 font-mono ${accent.text}`}>{t}</span>
+                        )))}
+                      </div>
+                    </div>
+                    {c.reason && (
+                      <div className="flex items-start gap-2">
+                        <span className="w-20 text-slate-500">why</span>
+                        <span className="text-slate-400">{c.reason}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </Panel>
       )
 
-    case 'resilience':
+    case 'vague_vs_specific': {
+      // ── T4 · SPLIT-SCREEN A/B — side-by-side cards with big outcome
+      // ribbons on top so the pedagogy (vague=skipped vs specific=called)
+      // reads at a glance. Deliberately different from T1 (grid) and T2
+      // (numbered steps) so learners see 3 clearly-different demos.
+      const RIBBON = {
+        'calc-used':  { text: '✓ tool CALLED with clean args', cls: 'bg-emerald-500/25 text-emerald-100 ring-emerald-400/60' },
+        'wrong-tool': { text: '⚠ wrong tool picked',           cls: 'bg-amber-500/25 text-amber-100 ring-amber-400/60' },
+        'no-tool':    { text: '✗ tool SKIPPED entirely',       cls: 'bg-rose-500/25 text-rose-100 ring-rose-400/60' },
+      }
+      const Side = ({ side, label, tone }) => {
+        const r = data[side]
+        if (!r) return null
+        const rib = RIBBON[r.outcome] || { text: r.outcome, cls: 'bg-slate-500/25 text-slate-100 ring-slate-500/60' }
+        return (
+          <div className={`rounded-2xl overflow-hidden ring-2 ${tone}`}>
+            <div className={`px-4 py-2 text-center text-xs font-black uppercase tracking-widest ring-1 ${rib.cls}`}>
+              {rib.text}
+            </div>
+            <div className="p-4 bg-slate-900/40 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-wider text-slate-500">{label}</span>
+                <code className={`rounded ${accent.bg} px-2 py-0.5 text-[11px] font-bold ${accent.text}`}>{r.tool_name}(…)</code>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">docstring the model saw</p>
+                <pre className="rounded bg-black/50 p-2 text-[11px] leading-relaxed text-slate-300 whitespace-pre-wrap max-h-32 overflow-y-auto">{r.docstring}</pre>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">what the model did</p>
+                {r.picks?.length ? (
+                  <ul className="space-y-1">
+                    {r.picks.map((p, i) => (
+                      <li key={i} className="rounded bg-black/50 p-2 text-[11px] font-mono">
+                        <span className="text-fuchsia-300">{p.name}</span>
+                        <span className="text-slate-500">(</span>
+                        <span className="text-emerald-200">{JSON.stringify(p.args)}</span>
+                        <span className="text-slate-500">)</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="rounded bg-rose-500/10 ring-1 ring-rose-500/30 p-2 text-[11px] text-rose-200 italic">
+                    (no tool call — the model answered from its own knowledge, ignoring the tool)
+                  </p>
+                )}
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">final answer</p>
+                <p className="text-sm text-slate-100 font-semibold">{r.final || '—'}</p>
+              </div>
+            </div>
+          </div>
+        )
+      }
       return (
-        <Panel title="Crash vs graceful recovery">
-          <p className="text-sm text-red-300">✗ unhandled: {data.crash}</p>
-          <ul className="mt-1 text-sm">{data.retry.map((r, i) => <li key={i} className={r.includes('recovered') ? 'text-emerald-300' : 'text-amber-300'}>↻ {r}</li>)}</ul>
-        </Panel>
+        <div className="space-y-3">
+          <div className="rounded-lg bg-gradient-to-r from-rose-500/10 via-slate-900/40 to-emerald-500/10 ring-1 ring-white/10 p-3 text-center">
+            <p className="text-[10px] uppercase tracking-widest text-slate-500">A/B experiment · the ONLY difference is the tool's name + docstring</p>
+            <p className="mt-1 text-base text-slate-100 font-semibold italic">"{data.question}"</p>
+            <p className="mt-1 text-[11px] text-slate-500">same LLM · same graph · same Python body · same question</p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Side side="vague"    label="RUN A · misleading name + vague docstring" tone="ring-rose-500/40" />
+            <Side side="specific" label="RUN B · aligned name + rich docstring"     tone="ring-emerald-500/40" />
+          </div>
+          <div className="rounded-lg bg-black/20 ring-1 ring-white/5 p-3 text-[11px] text-slate-400">
+            💡 <span className="text-slate-200 font-semibold">Lesson:</span> docstrings ARE prompts. A misleading name (<code className="text-rose-300">notes</code>) with a vague description gives the model no signal that the tool can do arithmetic, so a strong model <span className="text-rose-300">skips it</span>. Naming it <code className="text-emerald-300">calculator</code> and listing allowed operators + examples flips the outcome to <span className="text-emerald-300">called with a clean expression</span>.
+          </div>
+        </div>
       )
+    }
+
+    case 'resilience': {
+      const s1 = data.stage1
+      const s2 = data.stage2
+      const retry = data.retry || []
+      // Old shape: {crash: string, retry: [strings]}
+      const isLegacy = !s1 && Array.isArray(retry) && retry.length && typeof retry[0] === 'string'
+      if (isLegacy) {
+        return (
+          <Panel title="Crash vs graceful recovery">
+            <p className="text-sm text-red-300">✗ unhandled: {data.crash}</p>
+            <ul className="mt-1 text-sm">{retry.map((r, i) => <li key={i} className={r.includes('recovered') ? 'text-emerald-300' : 'text-amber-300'}>↻ {r}</li>)}</ul>
+          </Panel>
+        )
+      }
+      return (
+        <div className="space-y-3">
+          <Panel title="Stage 1 · Unhandled exception (this is what a crash looks like)">
+            <p className="text-[11px] text-slate-500 mb-1">{s1?.label}</p>
+            {s1?.ok
+              ? <p className="text-sm text-emerald-300">✓ lucky: {s1.result}</p>
+              : <p className="text-sm text-red-300">✗ {s1?.error} — an unhandled raise here would kill the whole run.</p>}
+          </Panel>
+          <Panel title="Stage 2 · Error returned as a STRING (agent can read it)">
+            <p className="text-[11px] text-slate-500 mb-1">{s2?.label}</p>
+            <pre className="overflow-x-auto rounded bg-black/40 p-2 text-[11px] leading-relaxed text-amber-200 whitespace-pre-wrap">{s2?.result}</pre>
+            <p className="text-[11px] text-slate-500 mt-2">On the next agent turn the model sees this text as ordinary tool output and can pivot to another tool.</p>
+          </Panel>
+          <Panel title="Stage 3 · Retry loop (recovers on the next attempt)">
+            <ul className="text-sm space-y-1">
+              {retry.map((r, i) => (
+                <li key={i} className={r.outcome === 'recovered' ? 'text-emerald-300' : 'text-amber-300'}>
+                  ↻ attempt {r.attempt}: {r.outcome} → <span className="text-slate-300">{r.detail}</span>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        </div>
+      )
+    }
+
+    case 'backoff': {
+      // ── T6 · HORIZONTAL TIMELINE CHART — one shared time axis across
+      // both runs, coloured bars show wait+call ticks, exhausted marker
+      // fills the tail red. Deliberately NOT a numbered step flow (T2
+      // owns that visual) so T6 reads as "time-based chart" at a glance.
+      const COLORS = {
+        recovered: { chip: 'bg-emerald-500/15 text-emerald-300', text: 'text-emerald-200', tick: 'bg-emerald-400', wait: 'bg-emerald-400/25' },
+        exhausted: { chip: 'bg-rose-500/15 text-rose-300',       text: 'text-rose-200',    tick: 'bg-rose-400',    wait: 'bg-rose-400/30' },
+        failed:    { chip: 'bg-amber-500/15 text-amber-300',     text: 'text-amber-200',   tick: 'bg-amber-400',   wait: 'bg-amber-400/25' },
+      }
+      const totalMax = Math.max(data.recovers.total || 0, data.exhausts.total || 0, 0.05)
+      const Timeline = ({ title, run, caseTag }) => (
+        <div className="rounded-xl bg-slate-900/40 ring-1 ring-white/10 overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-2 bg-black/40 border-b border-white/5">
+            <div className="flex items-center gap-2">
+              <span className={`rounded-full ${run.exhausted ? 'bg-rose-500/15 text-rose-300 ring-rose-400/40' : 'bg-emerald-500/15 text-emerald-300 ring-emerald-400/40'} ring-1 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest`}>{caseTag}</span>
+              <p className="text-xs font-semibold text-slate-200">{title}</p>
+            </div>
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ring-1 ${run.exhausted ? 'bg-rose-500/15 text-rose-200 ring-rose-400/40' : 'bg-emerald-500/15 text-emerald-200 ring-emerald-400/40'}`}>
+              {run.exhausted ? '✗ RETRY_EXHAUSTED' : '✓ recovered'} · {run.total.toFixed(2)}s
+            </span>
+          </div>
+          <div className="p-3 space-y-1.5">
+            {run.attempts.map((a, i) => {
+              const isTerminal = a.attempt == null
+              const c = COLORS[a.outcome] || COLORS.failed
+              const waitPct = a.delay ? Math.min(100, (a.delay / totalMax) * 100) : 0
+              const cumPct = Math.min(100, ((a.cum || 0) / totalMax) * 100)
+              return (
+                <div key={i} className="grid grid-cols-[3rem_1fr_11rem] items-center gap-2 text-[11px]">
+                  <span className="text-slate-500 font-mono">{isTerminal ? 'give up' : `try ${a.attempt}`}</span>
+                  <div className="relative h-5 rounded bg-black/50 overflow-hidden ring-1 ring-white/5">
+                    {a.delay > 0 && (
+                      <div
+                        className={`absolute inset-y-0 ${c.wait}`}
+                        style={{ left: `${cumPct - waitPct}%`, width: `${waitPct}%` }}
+                        title={`waited ${a.delay.toFixed(2)}s before this attempt`}
+                      />
+                    )}
+                    {!isTerminal && (
+                      <div
+                        className={`absolute top-0 bottom-0 w-1 ${c.tick}`}
+                        style={{ left: `calc(${cumPct}% - 2px)` }}
+                        title={`call fired at t=${(a.cum || 0).toFixed(2)}s`}
+                      />
+                    )}
+                    {isTerminal && (
+                      <div
+                        className="absolute inset-y-0 bg-rose-500/30 flex items-center justify-center"
+                        style={{ left: `${cumPct}%`, right: 0 }}
+                      >
+                        <span className="text-[10px] font-bold text-rose-200">give up</span>
+                      </div>
+                    )}
+                  </div>
+                  <span className={`${c.text} font-mono truncate`} title={a.detail}>
+                    {a.outcome}{a.delay > 0 && !isTerminal && <span className="ml-1 text-slate-500">· waited {a.delay.toFixed(2)}s</span>}
+                  </span>
+                </div>
+              )
+            })}
+            <div className="grid grid-cols-[3rem_1fr_11rem] items-center gap-2 pt-1 border-t border-white/5">
+              <span></span>
+              <div className="relative h-3 text-[10px] text-slate-500">
+                <span className="absolute left-0">0s</span>
+                <span className="absolute left-1/2 -translate-x-1/2">{(totalMax / 2).toFixed(2)}s</span>
+                <span className="absolute right-0">{totalMax.toFixed(2)}s</span>
+              </div>
+              <span></span>
+            </div>
+            <p className="text-[11px] text-slate-400 pt-1">
+              final: <span className={run.exhausted ? 'text-rose-300 font-mono' : 'text-emerald-300 font-mono'}>{run.result}</span>
+            </p>
+          </div>
+        </div>
+      )
+      return (
+        <div className="space-y-3">
+          <div className="rounded-lg bg-black/30 ring-1 ring-white/10 p-3">
+            <p className="text-[11px] text-slate-400">
+              ⏱ <span className="font-bold text-slate-200">Timeline chart</span> — each row is one retry attempt.
+              The <span className="text-amber-300">amber block</span> is the sleep before the call, the coloured tick is the call itself, and if we exhaust retries a <span className="text-rose-300">red bar</span> fills the tail. Both runs share <span className={accent.text}>ONE horizontal time axis</span> so you can compare them side-by-side.
+            </p>
+          </div>
+          <Timeline title="Flaky call — recovers on attempt #3" caseTag="CASE A" run={data.recovers} />
+          <Timeline title="Permanently broken — returns RETRY_EXHAUSTED string (no raise)" caseTag="CASE B" run={data.exhausts} />
+          <div className="rounded-lg bg-black/20 ring-1 ring-white/5 p-3 text-[11px] text-slate-400">
+            💡 <span className="text-slate-200 font-semibold">Rule:</span> only retry <span className="italic">idempotent</span> operations (GETs, reads, searches). Wrapping a write without a dedup key can cause double-charges, duplicate emails, etc. The wrapper returns a <span className="font-mono text-slate-300">"RETRY_EXHAUSTED: …"</span> string in the failure case so the agent loop keeps flowing — never an unhandled raise.
+          </div>
+        </div>
+      )
+    }
 
     case 'memory_short':
       return (
@@ -336,6 +725,70 @@ function Panel({ title, children }) {
       <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">{title}</h4>
       {children}
     </div>
+  )
+}
+
+/*
+ * StepFlow — numbered vertical processing pipeline used across Day 4 tabs.
+ *
+ * Each step:
+ *   {
+ *     n:     number shown in the circle
+ *     kind:  input | decision | action | output | success | failure | note
+ *     title: short bold header
+ *     hint:  optional small grey subtitle
+ *     body:  arbitrary React node (the actual content)
+ *   }
+ *
+ * The visual identity is: a circled number on the left, a colored vertical
+ * connector line between steps, and a colored border on the body card
+ * (green success / red failure / amber decision / slate action).
+ * This gives every Day-4 demo the same "look at the pipeline" feel while the
+ * step contents themselves stay very different per tab.
+ */
+function StepFlow({ steps, accent }) {
+  const TONES = {
+    input:    { ring: 'ring-slate-500/40',   badge: 'bg-slate-700 text-slate-100',           bar: 'bg-slate-600' },
+    decision: { ring: 'ring-amber-500/40',   badge: 'bg-amber-500/20 text-amber-200',        bar: 'bg-amber-500/50' },
+    action:   { ring: 'ring-sky-500/40',     badge: 'bg-sky-500/20 text-sky-200',            bar: 'bg-sky-500/50' },
+    output:   { ring: 'ring-violet-500/40',  badge: 'bg-violet-500/20 text-violet-200',      bar: 'bg-violet-500/50' },
+    success:  { ring: 'ring-emerald-500/40', badge: 'bg-emerald-500/20 text-emerald-200',    bar: 'bg-emerald-500/50' },
+    failure:  { ring: 'ring-rose-500/40',    badge: 'bg-rose-500/20 text-rose-200',          bar: 'bg-rose-500/50' },
+    note:     { ring: 'ring-white/10',       badge: `${accent?.bg || 'bg-white/10'} ${accent?.text || 'text-slate-200'}`, bar: 'bg-white/10' },
+  }
+  const KIND_LABEL = {
+    input: 'input', decision: 'decision', action: 'run', output: 'output',
+    success: 'success', failure: 'failure', note: 'note',
+  }
+  return (
+    <ol className="relative space-y-3">
+      {steps.map((s, i) => {
+        const t = TONES[s.kind] || TONES.note
+        const isLast = i === steps.length - 1
+        return (
+          <li key={i} className="relative flex gap-3 animate-fadeInUp" style={{ animationDelay: `${i * 40}ms` }}>
+            {/* left rail: number badge + connector */}
+            <div className="flex flex-col items-center shrink-0">
+              <div className={`flex h-9 w-9 items-center justify-center rounded-full ${t.badge} ring-1 ${t.ring} font-bold text-sm shadow`}>
+                {s.n ?? (i + 1)}
+              </div>
+              {!isLast && <div className={`w-0.5 flex-1 mt-1 ${t.bar} opacity-70`} style={{ minHeight: '1.5rem' }} />}
+            </div>
+            {/* right side: content card */}
+            <div className={`flex-1 rounded-xl bg-slate-900/40 ring-1 ${t.ring} p-3 mb-1`}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-sm font-bold text-slate-100">{s.title}</span>
+                <span className={`ml-auto rounded px-1.5 py-0.5 text-[10px] uppercase font-bold tracking-wider ${t.badge}`}>
+                  {KIND_LABEL[s.kind] || s.kind || 'step'}
+                </span>
+              </div>
+              {s.hint && <p className="text-[11px] text-slate-500 mb-2">{s.hint}</p>}
+              {s.body && <div className="text-xs text-slate-200">{s.body}</div>}
+            </div>
+          </li>
+        )
+      })}
+    </ol>
   )
 }
 
