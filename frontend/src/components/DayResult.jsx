@@ -651,7 +651,204 @@ export default function DayResult({ data, accent }) {
         </Panel>
       )
 
+    case 'memory_state': {
+      const snap = data.snapshot || {}
+      return (
+        <div className="space-y-3">
+          <Panel title="Explicit State (TypedDict)">
+            <p className="text-[11px] text-slate-500 mb-3">Every field below is checkpointed. The <span className={accent.text}>add_messages</span> reducer on <span className="font-mono text-slate-200">messages</span> makes updates MERGE (append) instead of overwriting — that's how chat memory grows without clobber.</p>
+            <div className="rounded-lg bg-black/30 ring-1 ring-white/10 divide-y divide-white/5">
+              {(data.fields || []).map((f) => (
+                <div key={f.name} className="px-3 py-2 grid grid-cols-[9rem_1fr_2fr] gap-3 items-baseline text-xs">
+                  <span className={`font-mono font-semibold ${accent.text}`}>{f.name}</span>
+                  <span className="font-mono text-slate-400">{f.type}</span>
+                  <span className="text-slate-300">{f.note}</span>
+                </div>
+              ))}
+            </div>
+          </Panel>
+          <Panel title={`Persisted snapshot · thread_id = ${data.thread_id}`}>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+              {[
+                ['messages', snap.messages], ['cursor', snap.cursor],
+                ['plan len', (snap.plan || []).length], ['findings', snap.findings],
+                ['tool_outputs', snap.tool_outputs], ['compactions', snap.compaction_count],
+              ].map(([k, v]) => (
+                <div key={k} className="rounded-md bg-black/30 ring-1 ring-white/10 px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wider text-slate-500">{k}</div>
+                  <div className={`font-mono ${accent.text}`}>{String(v)}</div>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-500 mt-3">next node → <span className={`font-mono ${accent.text}`}>{JSON.stringify(snap.next)}</span></p>
+            {(data.messages_preview || []).length > 0 && (
+              <div className="mt-3 rounded-md bg-black/20 p-2 space-y-1">
+                {data.messages_preview.map((m, i) => (
+                  <p key={i} className="text-[11px]"><span className={`font-mono font-bold ${accent.text}`}>{m.role}:</span> <span className="text-slate-300">{m.text}</span></p>
+                ))}
+              </div>
+            )}
+          </Panel>
+        </div>
+      )
+    }
+
+    case 'memory_checkpointer':
+      return (
+        <div className="space-y-3">
+          <Panel title={`Checkpointer + thread_id = ${data.thread_id}`}>
+            <p className="text-[11px] text-slate-500 mb-3">Same <span className="font-mono text-slate-200">thread_id</span>, two separate <span className="font-mono text-slate-200">.invoke()</span> calls. The 2nd call had ZERO context of its own — the checkpointer replayed turn 1's messages from <span className="font-mono text-slate-200">{data.checkpoint_file}</span>.</p>
+            <div className="space-y-2">
+              <div className="rounded-md bg-black/30 ring-1 ring-white/10 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Turn 1 · user set a fact</div>
+                <p className="text-sm text-slate-200">{data.turn1}</p>
+              </div>
+              <div className={`rounded-md ${accent.bg} ${accent.ring} ring-1 p-3`}>
+                <div className={`text-[10px] uppercase tracking-wider ${accent.text} mb-1`}>Turn 2 · agent recalls it purely from the checkpoint</div>
+                <p className="text-sm text-emerald-300">{data.turn2}</p>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-3">persisted messages on disk: <span className={`font-mono ${accent.text}`}>{data.persisted_messages}</span></p>
+          </Panel>
+        </div>
+      )
+
     case 'memory_long':
+      return (
+        <div className="space-y-3">
+          <Panel title="Saved to long-term vector store">
+            <ul className="text-sm text-slate-200 space-y-1">{(data.saved || []).map((s, i) => <li key={i}>• {s}</li>)}</ul>
+          </Panel>
+          <Panel title={`Recall (query: “${data.query}”)`}>
+            <p className="text-[11px] text-slate-500 mb-2">The store returns semantically NEAREST facts — not keyword matches — via the same Chroma retriever Day 2 uses for documents.</p>
+            <ul className="text-sm text-emerald-300 space-y-1">{(data.recall || []).map((h, i) => <li key={i}>✓ {h}</li>)}</ul>
+          </Panel>
+        </div>
+      )
+
+    case 'memory_compaction': {
+      const b = data.before || {}
+      const a = data.after || {}
+      const shrink = b.tokens > 0 ? Math.round((1 - a.tokens / b.tokens) * 100) : 0
+      return (
+        <div className="space-y-3">
+          <Panel title={`Compaction · threshold ${data.threshold}, keep last ${data.keep_last}`}>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="rounded-lg bg-black/30 ring-1 ring-white/10 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500">BEFORE</div>
+                <div className="font-mono text-lg text-slate-200">{b.count} msgs · ~{b.tokens} tok</div>
+              </div>
+              <div className={`rounded-lg ${accent.bg} ${accent.ring} ring-1 p-3`}>
+                <div className={`text-[10px] uppercase tracking-wider ${accent.text}`}>AFTER</div>
+                <div className={`font-mono text-lg ${accent.text}`}>{a.count} msgs · ~{a.tokens} tok</div>
+              </div>
+            </div>
+            <p className="text-xs text-emerald-300">↓ shrunk by <span className="font-bold">{shrink}%</span> — the older turns became one system summary; last {data.keep_last} kept verbatim.</p>
+          </Panel>
+          <Panel title="Summary message that replaced the oldest turns">
+            <p className="text-sm text-slate-200 whitespace-pre-wrap">{data.summary}</p>
+          </Panel>
+          <Panel title="Message list after compaction">
+            <div className="rounded-md bg-black/20 p-2 space-y-1">
+              {(a.messages || []).map((m, i) => (
+                <p key={i} className="text-[11px]"><span className={`font-mono font-bold ${accent.text}`}>{m.role}:</span> <span className="text-slate-300">{m.text}</span></p>
+              ))}
+            </div>
+          </Panel>
+        </div>
+      )
+    }
+
+    case 'memory_crash': {
+      const s = data.state_on_disk || {}
+      return (
+        <div className="space-y-3">
+          <Panel title={`Run 1 — plan → step 1 → 💥 crash · thread_id = ${data.thread_id}`}>
+            <ol className="space-y-1.5">
+              {(data.steps || []).map((st, i) => {
+                const bad = st.outcome === 'CRASH'
+                return (
+                  <li key={i} className={`flex items-start gap-2 rounded-md ring-1 px-2 py-1.5 text-xs ${bad ? 'bg-rose-500/10 ring-rose-500/30' : 'bg-black/20 ring-white/10'}`}>
+                    <span className={`shrink-0 inline-flex h-5 w-5 items-center justify-center rounded font-bold ${bad ? 'bg-rose-500/30 text-rose-200' : `${accent.bg} ${accent.text}`}`}>{i + 1}</span>
+                    <div>
+                      <div className={`font-mono font-semibold ${bad ? 'text-rose-200' : 'text-slate-200'}`}>{st.node} · {st.outcome}</div>
+                      <div className="text-[11px] text-slate-400">{st.note}</div>
+                    </div>
+                  </li>
+                )
+              })}
+            </ol>
+            {data.crash && <p className="mt-2 text-[11px] text-rose-300 font-mono">raised: {data.crash}</p>}
+          </Panel>
+          <Panel title="State on disk after the crash (the whole point)">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="rounded-md bg-black/30 ring-1 ring-white/10 px-3 py-2">
+                <div className="text-[10px] uppercase text-slate-500">plan len</div>
+                <div className={`font-mono ${accent.text}`}>{(s.plan || []).length}</div>
+              </div>
+              <div className="rounded-md bg-black/30 ring-1 ring-white/10 px-3 py-2">
+                <div className="text-[10px] uppercase text-slate-500">cursor</div>
+                <div className={`font-mono ${accent.text}`}>{s.cursor}</div>
+              </div>
+              <div className="rounded-md bg-black/30 ring-1 ring-white/10 px-3 py-2">
+                <div className="text-[10px] uppercase text-slate-500">findings</div>
+                <div className={`font-mono ${accent.text}`}>{s.findings}</div>
+              </div>
+              <div className="rounded-md bg-black/30 ring-1 ring-white/10 px-3 py-2">
+                <div className="text-[10px] uppercase text-slate-500">next</div>
+                <div className={`font-mono ${accent.text}`}>{JSON.stringify(s.next)}</div>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-3">dedup keys already checkpointed: <span className="font-mono text-slate-300">{JSON.stringify(s.tool_outputs_keys || [])}</span></p>
+            <p className="text-[11px] text-amber-300 mt-2">👉 Now click <span className="font-semibold">P6 · Resume</span> — the SAME thread_id will pick up from cursor {s.cursor}.</p>
+          </Panel>
+        </div>
+      )
+    }
+
+    case 'memory_resume': {
+      if (data.error) {
+        return <Panel title="Resume"><p className="text-sm text-amber-300">{data.error}</p></Panel>
+      }
+      const b = data.before || {}
+      const a = data.after || {}
+      return (
+        <div className="space-y-3">
+          <Panel title={`Run 2 · SAME thread_id = ${data.thread_id}`}>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg bg-black/30 ring-1 ring-white/10 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Before resume (loaded from disk)</div>
+                <div className="text-xs text-slate-300">cursor: <span className={`font-mono ${accent.text}`}>{b.cursor}</span></div>
+                <div className="text-xs text-slate-300">findings: <span className={`font-mono ${accent.text}`}>{b.findings}</span></div>
+                <div className="text-xs text-slate-300">next: <span className={`font-mono ${accent.text}`}>{JSON.stringify(b.next)}</span></div>
+              </div>
+              <div className={`rounded-lg ${accent.bg} ${accent.ring} ring-1 p-3`}>
+                <div className={`text-[10px] uppercase tracking-wider ${accent.text} mb-1`}>After resume (graph continued)</div>
+                <div className="text-xs text-slate-300">cursor: <span className={`font-mono ${accent.text}`}>{a.cursor}</span></div>
+                <div className="text-xs text-slate-300">findings: <span className={`font-mono ${accent.text}`}>{a.findings}</span></div>
+                <div className="text-xs text-emerald-300">idempotent: <span className="font-mono">✓ no double-fire</span></div>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-3">Passing <span className="font-mono text-slate-300">None</span> to <span className="font-mono text-slate-300">.invoke()</span> tells LangGraph: don't push new input, just continue from the persisted checkpoint. The <span className="font-mono text-slate-300">act</span> node's dedup keys prevent replayed steps from re-calling the LLM.</p>
+          </Panel>
+          {(data.findings || []).length > 0 && (
+            <Panel title="Findings (survived the crash + gathered post-resume)">
+              <ul className="space-y-1 text-sm text-slate-200">
+                {data.findings.map((f, i) => (
+                  <li key={i} className="rounded bg-black/20 p-2">
+                    <div className={`text-[11px] font-semibold ${accent.text}`}>{f.sub_question}</div>
+                    <div className="text-xs text-slate-300 mt-0.5">{f.answer}</div>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          )}
+          {data.final && <Panel title="Final answer"><ReportView text={data.final} /></Panel>}
+        </div>
+      )
+    }
+
+    case 'memory_long_legacy':
       return (
         <Panel title="Long-term memory (vector recall)">
           <p className="text-xs text-slate-400 mb-1">query: “{data.query}”</p>

@@ -230,10 +230,16 @@ hits = recall("what does the user like?", k=2)
       { title: 'Compaction', code: `compacted = compact_messages(messages, keep_last=2)
 # -> [SystemMessage(summary), ...last 2 messages]` },
     ],
+    sections: [
+      { id: 'pillars', label: 'Persistence pillars', desc: 'One live demo per pillar — walk them in order for the full picture.' },
+    ],
     demos: [
-      { id: 'short', label: 'Short-term memory', desc: 'Two turns on one thread — the 2nd remembers the 1st.', needsQuestion: false },
-      { id: 'long', label: 'Long-term recall', desc: 'Save facts, then recall the relevant ones. No LLM call.', needsQuestion: false },
-      { id: 'compaction', label: 'Compaction', desc: 'Squash a long chat into a summary + recent turns.', needsQuestion: false },
+      { id: 'state',        section: 'pillars', slide: 1, tab: 'P1 · State',          label: 'Pillar 1 · State design (TypedDict + reducer)',        desc: 'Explicit `ResearchState` fields with `add_messages` on messages. Runs the graph once and prints the persisted snapshot (`get_state(cfg)`). LLM call.', needsQuestion: false },
+      { id: 'checkpointer', section: 'pillars', slide: 2, tab: 'P2 · Checkpointer',   label: 'Pillar 2 · Checkpointer + thread_id',                  desc: 'Two invokes on the same `thread_id` — turn 2 remembers turn 1 with zero extra plumbing. Shows the SQLite file it wrote to. LLM call.', needsQuestion: false },
+      { id: 'compaction',   section: 'pillars', slide: 3, tab: 'P3 · Compaction',     label: 'Pillar 3 · Compact node (summarise old, keep last N)', desc: 'Force the compact node past its threshold. Prints message & token count BEFORE vs AFTER, plus the summary that replaced the old turns. LLM call.', needsQuestion: false },
+      { id: 'long',         section: 'pillars', slide: 4, tab: 'P4 · Long-term',      label: 'Pillar 4 · Long-term vector memory',                    desc: 'Save durable facts to a Chroma-backed store, then semantically recall the relevant ones. No LLM call — just embeddings.', needsQuestion: false },
+      { id: 'crash',        section: 'pillars', slide: 5, tab: 'P5 · Crash',          label: 'Demo 5 · Crash mid-run (persists cursor)',             desc: 'Plan + step 1 succeed, then a simulated exception fires. State is safely on disk: plan, cursor, findings, tool_outputs. LLM call.', needsQuestion: false },
+      { id: 'resume',       section: 'pillars', slide: 6, tab: 'P6 · Resume',         label: 'Demo 6 · Resume on SAME thread_id (idempotent)',       desc: 'Same `thread_id`, healthy graph — picks up from cursor 1, no re-planning, no double-fired tool calls. Run demo 5 first.', needsQuestion: false },
     ],
   },
   {

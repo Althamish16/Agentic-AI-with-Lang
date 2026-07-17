@@ -1049,6 +1049,12 @@ except ImportError:  # when launched as `python backend/app.py`
     import langgraph_demos as _lg_demos  # type: ignore
 
 
+try:
+    from backend import day5_demos as _d5  # normal import
+except ImportError:  # when launched as `python backend/app.py`
+    import day5_demos as _d5  # type: ignore
+
+
 import inspect as _inspect
 
 
@@ -1101,7 +1107,17 @@ REGISTRY = {
         "resilience": d4_resilience,
         "backoff": d4_backoff,
     },
-    5: {"short": d5_short, "long": d5_long, "compaction": d5_compaction},
+    5: {
+        # New transparent Day-5 pillars (see backend/day5_demos.py).
+        "state":         _d5.d5_state,
+        "checkpointer":  _d5.d5_checkpointer,
+        "compaction":    _d5.d5_compaction,
+        "long":          _d5.d5_long_term,
+        "crash":         lambda q="": _d5.d5_crash(session="studio"),
+        "resume":        lambda q="": _d5.d5_resume(session="studio"),
+        # Legacy id kept so any old link keeps working.
+        "short":         _d5.d5_checkpointer,
+    },
     6: {"multi": d6_multi, "resume": d6_resume},
     7: {"full": d7_full, "reflection": d7_reflection, "hitl": d7_hitl},
 }

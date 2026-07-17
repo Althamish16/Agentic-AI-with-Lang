@@ -1,0 +1,12 @@
+# Day 5 · Persistence — pinned versions
+# Uses the same core stack as the rest of the course (installed at repo root).
+# Pin here if you want to install Day 5 in isolation.
+langchain-core==0.3.29
+langgraph==0.2.61
+langgraph-checkpoint-sqlite==2.0.1
+langchain-chroma==0.1.4
+python-dotenv==1.0.1
+
+# Provider — pick ONE (or reuse whatever `.env` at the repo root already selects).
+# openai==1.57.0
+# langchain-openai==0.2.14
