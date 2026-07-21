@@ -911,6 +911,235 @@ export default function DayResult({ data, accent }) {
     case 'slide_demo':
       return <SlideDemo data={data} accent={accent} />
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // Day 6 · Multi-agent · transparent renderers
+    // ═══════════════════════════════════════════════════════════════════════
+    case 'team_topology':
+      return (
+        <div className="space-y-3">
+          {data.provider && <p className="text-[11px] text-slate-500">runtime provider: <span className={accent.text}>{data.provider}</span></p>}
+          <Panel title="Topologies — pick the smallest one that solves the task">
+            <div className="space-y-2">
+              {data.shapes.map((s, i) => (
+                <div key={i} className={`rounded-lg border ${accent.ring} ${accent.bg} p-3`}>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <p className={`text-sm font-semibold ${accent.text}`}>{s.name}</p>
+                    <span className="text-[11px] text-slate-400">{s.cost}</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mb-1">{s.when}</p>
+                  <pre className="rounded bg-black/40 p-2 text-[11px] text-slate-200 overflow-x-auto">{s.diagram}</pre>
+                </div>
+              ))}
+            </div>
+          </Panel>
+          <Panel title="State contract — SHARED across the team vs PRIVATE to one worker">
+            <table className="w-full text-xs">
+              <thead><tr className="text-slate-400"><th className="text-left py-1">field</th><th className="text-left">scope</th><th className="text-left">note</th></tr></thead>
+              <tbody>
+                {data.state_contract.map((f, i) => (
+                  <tr key={i} className="align-top">
+                    <td className={`py-0.5 font-mono ${accent.text}`}>{f.field}</td>
+                    <td className="py-0.5"><span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${f.scope.startsWith('SHARED') ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>{f.scope}</span></td>
+                    <td className="py-0.5 text-slate-300">{f.note}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Panel>
+          <Panel title="Pitfalls this lab exists to make visible">
+            <ul className="text-sm text-slate-300 space-y-1">{data.pitfalls.map((p, i) => <li key={i}>• {p}</li>)}</ul>
+          </Panel>
+        </div>
+      )
+
+    case 'team_worker':
+      return (
+        <div className="space-y-3">
+          {data.provider && <p className="text-[11px] text-slate-500">runtime provider: <span className={accent.text}>{data.provider}</span></p>}
+          <Panel title={`Worker: ${data.worker}  · run in isolation`}>
+            <div className="grid gap-3 md:grid-cols-3 text-xs">
+              <div><p className="text-slate-400 mb-1">Input fields (from shared state)</p><ul className="text-slate-200">{data.input_shape.map((f) => <li key={f}>• <span className={`font-mono ${accent.text}`}>{f}</span></li>)}</ul></div>
+              <div><p className="text-slate-400 mb-1">Private fields (never leak)</p><ul className="text-slate-200">{data.private_fields.length ? data.private_fields.map((f) => <li key={f}>• <span className="font-mono text-amber-300">{f}</span></li>) : <li className="text-slate-500">(none)</li>}</ul></div>
+              <div><p className="text-slate-400 mb-1">Output fields (back to shared)</p><ul className="text-slate-200">{data.output_shape.map((f) => <li key={f}>• <span className={`font-mono ${accent.text}`}>{f}</span></li>)}</ul></div>
+            </div>
+            <p className="mt-2 text-[11px] text-slate-500">topic: <span className={accent.text}>{data.topic}</span></p>
+          </Panel>
+
+          {data.sub_questions && data.sub_questions.length > 0 && (
+            <Panel title="Private state · sub_questions (never reaches the parent)">
+              <ol className="text-sm space-y-1">{data.sub_questions.map((q, i) => <li key={i} className="text-slate-200 flex gap-2"><span className={`font-bold ${accent.text}`}>{i + 1}.</span> {q}</li>)}</ol>
+            </Panel>
+          )}
+
+          {data.findings_in && (
+            <Panel title="Canned findings handed to the writer">
+              <ul className="text-xs space-y-1">{data.findings_in.map((f, i) => <li key={i} className="text-slate-300">• <span className={accent.text}>{f.sub_question}</span> — {f.evidence}</li>)}</ul>
+            </Panel>
+          )}
+
+          {data.findings && data.findings.length > 0 && (
+            <Panel title={`Output · ${data.findings.length} findings returned to the shared TeamState`}>
+              <ul className="text-xs space-y-1">{data.findings.map((f, i) => <li key={i} className="text-slate-300">• <span className={accent.text}>{f.sub_question}</span> — {f.evidence}</li>)}</ul>
+            </Panel>
+          )}
+
+          {data.draft && (
+            <Panel title="Output · draft (returned to shared state)"><ReportView text={data.draft} /></Panel>
+          )}
+
+          {data.trace && data.trace.length > 0 && (
+            <Panel title="Sub-graph trace">
+              <ol className="text-xs space-y-1">{data.trace.map((t, i) => (
+                <li key={i} className="text-slate-300 flex flex-wrap gap-2">
+                  <span className={`font-mono ${accent.text}`}>{i + 1}.</span>
+                  <span className="font-mono">{t.node}</span>
+                  {t.cursor != null && <span className="text-slate-500">cursor={t.cursor}</span>}
+                  {t.findings_added > 0 && <span className="text-emerald-300">+{t.findings_added} finding</span>}
+                </li>
+              ))}</ol>
+            </Panel>
+          )}
+
+          {data.note && <p className="text-[11px] text-slate-500">💡 {data.note}</p>}
+        </div>
+      )
+
+    case 'team_trace':
+      return (
+        <div className="space-y-3">
+          {data.provider && <p className="text-[11px] text-slate-500">runtime provider: <span className={accent.text}>{data.provider}</span></p>}
+          <Panel title={`Delegation trace · ${data.steps.length} steps`}>
+            <ol className="space-y-1.5">{data.steps.map((s) => (
+              <li key={s.n} className="rounded-lg bg-black/30 p-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`inline-flex h-5 w-5 items-center justify-center rounded ${accent.bg} text-[10px] font-bold ${accent.text}`}>{s.n}</span>
+                  <span className="font-mono text-slate-100">{s.node}</span>
+                  {s.step_field != null && <span className="text-slate-500">step={s.step_field}</span>}
+                  {s.next && <span className="text-slate-400">next=<span className={accent.text}>{s.next}</span></span>}
+                  <span className="text-slate-500">findings={s.findings_count}</span>
+                  <span className="text-slate-500">draft={s.has_draft ? '✓' : '—'}</span>
+                </div>
+                {s.patch_summary && Object.keys(s.patch_summary).length > 0 && (
+                  <pre className="mt-1 overflow-x-auto rounded bg-black/40 p-1.5 text-[10px] text-slate-300">{JSON.stringify(s.patch_summary, null, 2)}</pre>
+                )}
+              </li>
+            ))}</ol>
+          </Panel>
+          {data.findings && data.findings.length > 0 && (
+            <Panel title={`Shared · ${data.findings.length} findings gathered`}>
+              <ul className="text-xs space-y-1">{data.findings.map((f, i) => <li key={i} className="text-slate-300">• <span className={accent.text}>{f.sub_question}</span> — {f.evidence}</li>)}</ul>
+            </Panel>
+          )}
+          {data.final && <Panel title="Final draft"><ReportView text={data.final} /></Panel>}
+          {data.note && <p className="text-[11px] text-slate-500">💡 {data.note}</p>}
+        </div>
+      )
+
+    case 'team_resume': {
+      const StepList = ({ steps, tag }) => (
+        <ol className="text-xs space-y-1">{steps.map((s, i) => (
+          <li key={i} className="flex items-center gap-2">
+            <span className={`inline-flex h-4 w-4 items-center justify-center rounded ${accent.bg} text-[10px] font-bold ${accent.text}`}>{s.n}</span>
+            <span className="font-mono text-slate-100">{s.node}</span>
+            {s.step_field != null && <span className="text-slate-500">step={s.step_field}</span>}
+            {tag && <span className={`ml-auto text-[10px] rounded px-1.5 py-0.5 ${tag === 'phase1' ? 'bg-amber-500/15 text-amber-300' : 'bg-emerald-500/15 text-emerald-300'}`}>{tag}</span>}
+          </li>
+        ))}</ol>
+      )
+      return (
+        <div className="space-y-3">
+          {data.provider && <p className="text-[11px] text-slate-500">runtime provider: <span className={accent.text}>{data.provider}</span> · thread_id: <span className="font-mono">{data.thread_id}</span></p>}
+          <Panel title={`PHASE 1 · run then 'crash' after ${data.interrupt_after} steps`}>
+            <StepList steps={data.phase1_steps} tag="phase1" />
+          </Panel>
+          <Panel title="💾 State persisted to disk (survived the crash)">
+            <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+              <div><p className="text-slate-500">step</p><p className={accent.text}>{data.persisted.step}</p></div>
+              <div><p className="text-slate-500">findings</p><p className={accent.text}>{data.persisted.findings}</p></div>
+              <div><p className="text-slate-500">draft</p><p className={accent.text}>{data.persisted.has_draft ? 'yes' : 'no'}</p></div>
+              <div><p className="text-slate-500">next</p><p className={`font-mono ${accent.text}`}>{data.persisted.next.join(',') || '(none)'}</p></div>
+              <div><p className="text-slate-500">trace</p><p className={accent.text}>{data.persisted.trace_len}</p></div>
+            </div>
+          </Panel>
+          <Panel title="PHASE 2 · resume with the SAME thread_id + input=None">
+            <StepList steps={data.phase2_steps} tag="phase2" />
+          </Panel>
+          {data.final && <Panel title="Final draft (produced AFTER the resume)"><ReportView text={data.final} /></Panel>}
+          {data.note && <p className="text-[11px] text-slate-500">💡 {data.note}</p>}
+        </div>
+      )
+    }
+
+    case 'team_critic': {
+      const verdictTone = data.verdict === 'approve' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
+      return (
+        <div className="space-y-3">
+          {data.provider && <p className="text-[11px] text-slate-500">runtime provider: <span className={accent.text}>{data.provider}</span></p>}
+          <Panel title={`Delegation trace · ${data.revisions} revision${data.revisions === 1 ? '' : 's'} · final verdict = ${data.verdict.toUpperCase()}`}>
+            <span className={`inline-block mb-2 rounded-md px-2 py-0.5 text-[11px] font-semibold ${verdictTone}`}>verdict: {data.verdict}</span>
+            <ol className="text-xs space-y-1">{data.trace.map((t, i) => (
+              <li key={i} className="text-slate-200"><span className={`font-mono ${accent.text} mr-1`}>{i + 1}.</span> {t}</li>
+            ))}</ol>
+          </Panel>
+          {data.critique && (
+            <Panel title="Critic's last feedback">
+              <pre className="whitespace-pre-wrap text-xs text-slate-300">{data.critique}</pre>
+            </Panel>
+          )}
+          {data.final && <Panel title="Final approved draft"><ReportView text={data.final} /></Panel>}
+          {data.tokens && data.tokens.length > 0 && (
+            <Panel title="Per-worker token log (every hop costs tokens)">
+              <table className="w-full text-xs">
+                <thead><tr className="text-slate-400"><th className="text-left py-1">worker</th><th className="text-right">input</th><th className="text-right">output</th></tr></thead>
+                <tbody>{data.tokens.map((t, i) => (
+                  <tr key={i} className="text-slate-200"><td className="py-0.5 font-mono">{t.worker}</td><td className="text-right">{t.input_tokens}</td><td className="text-right">{t.output_tokens}</td></tr>
+                ))}</tbody>
+              </table>
+            </Panel>
+          )}
+          {data.note && <p className="text-[11px] text-slate-500">💡 {data.note}</p>}
+        </div>
+      )
+    }
+
+    case 'team_tokens': {
+      const Row = ({ t, i }) => (
+        <tr className="text-slate-200"><td className="py-0.5 font-mono">{i + 1}. {t.worker}</td><td className="text-right">{t.input_tokens}</td><td className="text-right">{t.output_tokens}</td><td className="text-right text-slate-400">{t.input_tokens + t.output_tokens}</td></tr>
+      )
+      return (
+        <div className="space-y-3">
+          {data.provider && <p className="text-[11px] text-slate-500">runtime provider: <span className={accent.text}>{data.provider}</span></p>}
+          <div className="grid gap-3 md:grid-cols-2">
+            <Panel title={`Team · ${data.team.total} tokens`}>
+              <table className="w-full text-xs">
+                <thead><tr className="text-slate-400"><th className="text-left py-1">worker</th><th className="text-right">in</th><th className="text-right">out</th><th className="text-right">sum</th></tr></thead>
+                <tbody>{data.team.tokens.map((t, i) => <Row key={i} t={t} i={i} />)}</tbody>
+              </table>
+            </Panel>
+            <Panel title={`Single agent · ${data.single.total} tokens`}>
+              <table className="w-full text-xs">
+                <thead><tr className="text-slate-400"><th className="text-left py-1">call</th><th className="text-right">in</th><th className="text-right">out</th><th className="text-right">sum</th></tr></thead>
+                <tbody>{data.single.tokens.map((t, i) => <Row key={i} t={t} i={i} />)}</tbody>
+              </table>
+            </Panel>
+          </div>
+          <Panel title="Verdict">
+            {data.ratio != null && (
+              <p className={`text-sm ${data.ratio > 1 ? 'text-amber-300' : 'text-emerald-300'}`}>
+                team / single = <span className="font-bold">{data.ratio.toFixed(2)}×</span> — {data.ratio > 1 ? 'team is MORE expensive on this task' : 'team is cheaper'}
+              </p>
+            )}
+            <p className="mt-1 text-[11px] text-slate-500">Multi-agent pays off when workers have <em>heterogeneous tools</em>, tasks can be parallelised, or a reviewer loop improves quality enough to justify the extra hops.</p>
+          </Panel>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Panel title="Team draft"><ReportView text={data.team.draft || '(empty)'} /></Panel>
+            <Panel title="Single-agent draft"><ReportView text={data.single.draft || '(empty)'} /></Panel>
+          </div>
+          {data.note && <p className="text-[11px] text-slate-500">💡 {data.note}</p>}
+        </div>
+      )
+    }
+
     default:
       return <pre className="text-xs text-slate-400 overflow-x-auto">{JSON.stringify(data, null, 2)}</pre>
   }

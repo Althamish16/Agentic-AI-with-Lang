@@ -1055,6 +1055,23 @@ except ImportError:  # when launched as `python backend/app.py`
     import day5_demos as _d5  # type: ignore
 
 
+try:
+    from backend import day6_demos as _d6  # normal import
+except ImportError:  # when launched as `python backend/app.py`
+    import day6_demos as _d6  # type: ignore
+
+
+try:
+    from backend import day7_demos as _d7  # normal import
+except ImportError:  # when launched as `python backend/app.py`
+    import day7_demos as _d7  # type: ignore
+
+
+def _day6_demos_map():
+    """Wrap each Day-6 demo so the dispatcher's `q` arg passes through cleanly."""
+    return {name: (lambda q="", _fn=fn: _fn(q)) for name, fn in _d6.DEMOS.items()}
+
+
 import inspect as _inspect
 
 
@@ -1118,8 +1135,19 @@ REGISTRY = {
         # Legacy id kept so any old link keeps working.
         "short":         _d5.d5_checkpointer,
     },
-    6: {"multi": d6_multi, "resume": d6_resume},
-    7: {"full": d7_full, "reflection": d7_reflection, "hitl": d7_hitl},
+    6: {
+        # New TRANSPARENT Day-6 sub-tabs (see backend/day6_demos.py).
+        **{name: fn for name, fn in _day6_demos_map().items()},
+        # Legacy ids used by older links / the course-wide README.
+        "multi": d6_multi,
+        "resume_legacy": d6_resume,
+    },
+    7: {
+        # New TRANSPARENT Day-7 sub-tabs (see backend/day7_demos.py).
+        **{name: (lambda q="", _fn=fn: _fn(q)) for name, fn in _d7.DEMOS.items()},
+        # Legacy ids kept so older links / the course-wide README keep working.
+        "full": d7_full, "reflection": d7_reflection, "hitl": d7_hitl,
+    },
 }
 
 

@@ -1,0 +1,18 @@
+# Day 7 — Capstone: reflection · HITL · observability
+# Pinned to the versions the labs were built and tested against.
+langchain==0.3.27
+langchain-core==0.3.78
+langchain-community==0.3.30
+langchain-openai==0.3.35
+langgraph==0.6.10
+langgraph-checkpoint==2.1.2
+langgraph-checkpoint-sqlite==2.0.13
+pydantic==2.11.10
+python-dotenv==1.1.1
+
+# Observability (OPTIONAL — everything runs cleanly without it).
+# Enable by setting LANGSMITH_TRACING=true + LANGSMITH_API_KEY=... in .env.
+langsmith==0.4.42
+
+# Only needed if you want to run the full RAG stack too:
+# chromadb, fastembed  — see repo root requirements.txt.

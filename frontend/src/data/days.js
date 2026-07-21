@@ -269,9 +269,17 @@ app_i.invoke({"question": q}, cfg)   # stops before writing (crash)
 # ...later / new process...
 g.compile(checkpointer=cp).invoke(None, cfg)  # resume from disk` },
     ],
+    sections: [
+      { id: 'team', label: 'Multi-agent modules', desc: 'One live sub-tab per module — walk them left to right for the full story.' },
+    ],
     demos: [
-      { id: 'multi', label: 'Supervisor + sub-agents', desc: 'Watch the supervisor delegate to researcher then writer.', needsQuestion: true },
-      { id: 'resume', label: 'Kill & resume', desc: 'Interrupt before writing, then resume from the checkpoint.', needsQuestion: true },
+      { id: 'topology',   section: 'team', slide: 1, tab: 'M1 · Topology',    label: 'Module 1 · Team shapes & state contract',    desc: 'Single vs supervisor vs hierarchical topologies side-by-side, plus the exact SHARED/PRIVATE state table this lab uses. No LLM call.', needsQuestion: false },
+      { id: 'researcher', section: 'team', slide: 2, tab: 'M2 · Researcher',  label: 'Module 2 · Researcher sub-agent (isolated)',  desc: 'Runs ONLY the researcher sub-graph. Exposes its private sub_questions + cursor so isolation from the parent is visible.', needsQuestion: true },
+      { id: 'writer',     section: 'team', slide: 3, tab: 'M3 · Writer',      label: 'Module 3 · Writer sub-agent (isolated)',      desc: 'Runs the writer with canned findings — proves it needs ONLY {topic, findings} and cannot see anything else.', needsQuestion: true },
+      { id: 'team',       section: 'team', slide: 4, tab: 'M4 · Team run',    label: 'Module 4 · Full supervisor delegation',       desc: 'Live supervisor→researcher→supervisor→writer→FINISH trace with per-step patches, running state, and the final draft.', needsQuestion: true },
+      { id: 'resume',     section: 'team', slide: 5, tab: 'M5 · Kill & resume', label: 'Module 5 · Long-running · kill & resume',   desc: 'Phase 1 crashes mid-flight after N steps · phase 2 resumes on the SAME thread_id with input=None. Step numbers prove no work was lost.', needsQuestion: true },
+      { id: 'critic',     section: 'team', slide: 6, tab: 'M6 · Critic loop', label: 'Module 6 · Bounded writer↔critic loop',       desc: 'Exercise · adds a critic worker. Every revision is one hop through supervisor → writer → critic → …, capped by MAX_REVISIONS.', needsQuestion: true },
+      { id: 'tokens',     section: 'team', slide: 7, tab: 'M7 · Team vs single', label: 'Module 7 · Team vs single-agent tokens',  desc: 'Runs the same task both ways and prints token totals per worker. See when multi-agent HURTS more than it helps.', needsQuestion: true },
     ],
   },
   {
@@ -301,10 +309,22 @@ g.compile(checkpointer=cp).invoke(None, cfg)  # resume from disk` },
       { title: 'LangSmith tracing', code: `# .env: LANGSMITH_TRACING=true, LANGSMITH_API_KEY=...
 # every node/LLM call/token shows up at smith.langchain.com` },
     ],
+    sections: [
+      { id: 'modules', label: 'Capstone modules', desc: 'One transparent live demo per production layer — run left to right.' },
+    ],
     demos: [
-      { id: 'full', label: 'Run the full agent', desc: 'End-to-end trace, auto-approved for a self-contained demo.', needsQuestion: true },
-      { id: 'reflection', label: 'Self-critique only', desc: 'Draft → critique → PASS/REVISE verdict, in isolation.', needsQuestion: true },
-      { id: 'hitl', label: 'The approval gate', desc: 'Run until interrupt() pauses; see the approval request payload.', needsQuestion: true },
+      // Seven transparent sub-tabs — each renders as a full slide_demo trace.
+      { id: 'm1_reflection',   section: 'modules', slide: 1, tab: 'M1 · Reflection',    label: 'Module 1 · Bounded reflection loop',           desc: 'Score trace across iterations · MIN_DELTA plateau guard fires · escalates.',                                                needsQuestion: false },
+      { id: 'm2_programmatic', section: 'modules', slide: 2, tab: 'M2 · Prog check',    label: 'Module 2 · Deterministic programmatic check',  desc: '4 drafts run through the regex citation check. No LLM. See exactly what it catches.',                                        needsQuestion: false },
+      { id: 'm3_judge_check',  section: 'modules', slide: 3, tab: 'M3 · Judge + check', label: 'Module 3 · Judge AND check must agree',        desc: 'The auto-publish decision matrix — 4 scenarios side by side.',                                                              needsQuestion: false },
+      { id: 'm4_hitl',         section: 'modules', slide: 4, tab: 'M4 · Human gate',    label: 'Module 4 · interrupt() + resume anatomy',      desc: 'The exact interrupt() payload, the Command(resume=…) call, and why a checkpointer is mandatory.',                          needsQuestion: false },
+      { id: 'm5_escalation',   section: 'modules', slide: 5, tab: 'M5 · Escalate',      label: 'Module 5 · Escalate on low confidence',        desc: 'Two PASS drafts side by side — one auto-publishes, the other is escalated because score < LOW_CONFIDENCE.',                 needsQuestion: false },
+      { id: 'm6_full',         section: 'modules', slide: 6, tab: 'M6 · Full run',      label: 'Module 6 · Full end-to-end capstone',          desc: 'Runs the SHARED research agent (same as the Studio) and captures every node hop + interrupt + resume.',                     needsQuestion: true  },
+      { id: 'm7_observe',      section: 'modules', slide: 7, tab: 'M7 · Observe',       label: 'Module 7 · Observability with LangSmith',      desc: 'What flipping LANGSMITH_TRACING=true buys you: node spans, LLM calls, revision hops — one tree.',                            needsQuestion: false },
+      // Legacy flat demos (kept for older deep links).
+      { id: 'full',       label: 'Run the full agent (legacy)', desc: 'End-to-end trace, auto-approved.',      needsQuestion: true },
+      { id: 'reflection', label: 'Self-critique only (legacy)', desc: 'Draft → critique → verdict.',           needsQuestion: true },
+      { id: 'hitl',       label: 'The approval gate (legacy)',  desc: 'Run until interrupt() pauses.',         needsQuestion: true },
     ],
   },
 ]
