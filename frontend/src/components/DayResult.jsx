@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import CapstoneRunner from './CapstoneRunner.jsx'
 import ReportView from './ReportView.jsx'
 import { IconDoc } from './Icons.jsx'
 
@@ -911,9 +912,27 @@ export default function DayResult({ data, accent }) {
     case 'slide_demo':
       return <SlideDemo data={data} accent={accent} />
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // Day 6 · Multi-agent · transparent renderers
-    // ═══════════════════════════════════════════════════════════════════════
+    case 'live_capstone':
+      return (
+        <div className="space-y-3">
+          {(data.title || data.subtitle) && (
+            <div className={`rounded-2xl ${accent.bg} ${accent.ring} ring-1 p-4`}>
+              {data.title && <p className={`text-sm font-semibold ${accent.text}`}>{data.title}</p>}
+              {data.subtitle && <p className="mt-1 text-xs text-slate-300">{data.subtitle}</p>}
+              <p className="mt-2 text-[11px] text-amber-300">
+                ⏸ The agent will PAUSE at the approval gate — click <b>Approve &amp; publish</b> or
+                <b> Request changes</b> to drive the human-in-the-loop step yourself.
+              </p>
+            </div>
+          )}
+          <CapstoneRunner
+            initialQuestion={data.question || ''}
+            autoRun={Boolean(data.question)}
+            showQuestionBar={true}
+            threadPrefix="day7-m6"
+          />
+        </div>
+      )
     case 'team_topology':
       return (
         <div className="space-y-3">

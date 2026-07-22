@@ -236,8 +236,25 @@ def m5_escalation(_q: str = "") -> dict:
 # M6 · Full capstone — run the SHARED research agent, stream a live trace
 # ═════════════════════════════════════════════════════════════════════════════
 def m6_full(q: str = "") -> dict:
-    """Reuse the same graph the Studio tab runs, capture every hop as a
-    slide_demo step. Auto-approves so it completes in one call."""
+    """Hand off to the same live SSE-driven runner the Studio tab uses, so the
+    presenter can actually click Approve / Request-changes at the human gate.
+    The frontend renders this as an inline <CapstoneRunner /> that auto-starts
+    with the given question, streams every node hop, and PAUSES for a real
+    human decision at `interrupt()` — no auto-approval.
+    """
+    return {
+        "kind": "live_capstone",
+        "question": q or "Should I use similarity or MMR retrieval for a RAG system?",
+        "title": "Live end-to-end capstone",
+        "subtitle": ("plan → research → write → reflect → approve (YOU) → publish · "
+                     "same graph the Studio tab drives, but paused at the human gate "
+                     "so you can actually approve it live."),
+    }
+
+
+def _m6_full_offline(q: str = "") -> dict:
+    """Retained offline slide_demo path (not currently wired). Kept so we can
+    revert to a fully static demo if needed."""
     from langgraph.checkpoint.memory import MemorySaver
     from langgraph.types import Command
 
